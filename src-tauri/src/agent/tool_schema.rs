@@ -191,6 +191,14 @@ fn tool_name_openai(tool: &Value) -> Option<&str> {
         .and_then(|n| n.as_str())
 }
 
+pub fn plan_mode_excluded_tools() -> &'static [&'static str] {
+    &["delete_file", "run_command", "spawn_task"]
+}
+
+pub fn plan_mode_openai_tools() -> Vec<Value> {
+    tool_definitions_openai_excluding(plan_mode_excluded_tools())
+}
+
 pub fn tool_definitions_openai_excluding(exclude: &[&str]) -> Vec<Value> {
     tool_definitions_openai()
         .into_iter()

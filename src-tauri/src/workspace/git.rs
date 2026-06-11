@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use regex::Regex;
@@ -110,7 +110,26 @@ fn diff_stats(cwd: &Path) -> (u32, u32, u32) {
         }
     }
 
+    if let Some(list) = run_git(cwd, &["ls-files", "--others", "--exclude-standard"]) {
+        for rel in list.lines().map(str::trim).filter(|s| !s.is_empty()) {
+            let path = cwd.join(rel);
+            if !path.is_file() {
+                continue;
+            }
+            files += 1;
+            insertions += count_text_lines(&path);
+        }
+    }
+
     (files, insertions, deletions)
+}
+
+fn count_text_lines(path: &Path) -> u32 {
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.contains(&0) => 1,
+        Ok(bytes) => String::from_utf8_lossy(&bytes).lines().count().max(1) as u32,
+        Err(_) => 0,
+    }
 }
 
 fn parse_tracking(line: &str) -> (Option<u32>, Option<u32>) {
@@ -176,6 +195,66 @@ fn parse_status_porcelain(raw: &str) -> Vec<GitChange> {
             })
         })
         .collect()
+}
+
+fn rel_path(cwd: &Path, path: &Path) -> Option<String> {
+    path.strip_prefix(cwd)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+}
+
+fn collect_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files_recursive(&path, out);
+        } else if path.is_file() {
+            out.push(path);
+        }
+    }
+}
+
+fn expand_changes(cwd: &Path, changes: Vec<GitChange>) -> Vec<GitChange> {
+    let mut out = Vec::new();
+    for change in changes {
+        let rel = change.path.trim_end_matches('/');
+        let full = cwd.join(rel);
+        if full.is_dir() {
+            let mut files = Vec::new();
+            collect_files_recursive(&full, &mut files);
+            files.sort();
+            if files.is_empty() {
+                out.push(GitChange {
+                    path: rel.to_string(),
+                    status: change.status.clone(),
+                    staged: change.staged,
+                });
+                continue;
+            }
+            for file in files {
+                if let Some(path) = rel_path(cwd, &file) {
+                    out.push(GitChange {
+                        path,
+                        status: change.status.clone(),
+                        staged: change.staged,
+                    });
+                }
+            }
+        } else {
+            out.push(GitChange {
+                path: rel.to_string(),
+                status: change.status,
+                staged: change.staged,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out.dedup_by(|a, b| a.path == b.path);
+    out
 }
 
 fn github_auth_status() -> (bool, String) {
@@ -272,6 +351,7 @@ pub fn inspect_workspace(workspace_path: Option<&str>, source: Option<&str>) -> 
 
     let changes = run_git(path, &["status", "--porcelain"])
         .map(|raw| parse_status_porcelain(&raw))
+        .map(|raw| expand_changes(path, raw))
         .unwrap_or_default();
 
     let changed_files = if files > 0 {
@@ -308,6 +388,242 @@ pub fn checkout_branch(workspace_path: &str, branch: &str) -> AppResult<()> {
     }
     run_git_stderr(path, &["checkout", branch]).map_err(AppError::from)?;
     Ok(())
+}
+
+pub fn commit_changes(workspace_path: &str, message: &str) -> AppResult<()> {
+    let msg = message.trim();
+    if msg.is_empty() {
+        return Err(AppError::from("提交说明不能为空"));
+    }
+    let path = Path::new(workspace_path);
+    if !path.exists() {
+        return Err(AppError::from("工作区路径不存在"));
+    }
+    if !is_git_repo(path) {
+        return Err(AppError::from("不是 Git 仓库"));
+    }
+    run_git_stderr(path, &["add", "-A"]).map_err(AppError::from)?;
+    match run_git_stderr(path, &["commit", "-m", msg]) {
+        Ok(_) => Ok(()),
+        Err(e) if e.contains("nothing to commit") || e.contains("无文件要提交") => {
+            Err(AppError::from("没有可提交的变更"))
+        }
+        Err(e) => Err(AppError::from(e)),
+    }
+}
+
+pub fn push_branch(workspace_path: &str) -> AppResult<()> {
+    let path = Path::new(workspace_path);
+    if !path.exists() {
+        return Err(AppError::from("工作区路径不存在"));
+    }
+    if !is_git_repo(path) {
+        return Err(AppError::from("不是 Git 仓库"));
+    }
+    if run_git_stderr(path, &["push"]).is_ok() {
+        return Ok(());
+    }
+    let branch = run_git(path, &["branch", "--show-current"])
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty())
+        .ok_or_else(|| AppError::from("无法获取当前分支"))?;
+    run_git_stderr(path, &["push", "-u", "origin", &branch]).map_err(AppError::from)?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiffResult {
+    pub path: String,
+    pub diff: String,
+    pub is_new_file: bool,
+    pub is_deleted: bool,
+}
+
+/// 工作区文件相对 HEAD 的统一 diff（含未跟踪新文件）
+pub fn file_diff(workspace_path: &str, file_path: &str) -> AppResult<FileDiffResult> {
+    let cwd = Path::new(workspace_path);
+    if !cwd.is_dir() {
+        return Err(AppError::from("工作区路径无效"));
+    }
+    if !is_git_repo(cwd) {
+        return Err(AppError::from("不是 Git 仓库"));
+    }
+
+    let rel = file_path.trim().trim_start_matches("./").trim_end_matches('/');
+    if rel.is_empty() {
+        return Err(AppError::from("文件路径为空"));
+    }
+
+    let full = cwd.join(rel);
+    if full.is_dir() {
+        return directory_diff(cwd, rel, &full);
+    }
+
+    file_diff_single(cwd, rel)
+}
+
+fn directory_diff(cwd: &Path, rel: &str, dir: &Path) -> AppResult<FileDiffResult> {
+    let mut files = Vec::new();
+    collect_files_recursive(dir, &mut files);
+    files.sort();
+
+    if files.is_empty() {
+        return Err(AppError::from(format!("目录为空: {rel}")));
+    }
+
+    let mut combined = String::new();
+    let mut is_new_file = false;
+    let mut is_deleted = true;
+
+    for file in files {
+        let Some(rel_file) = rel_path(cwd, &file) else {
+            continue;
+        };
+        match file_diff_single(cwd, &rel_file) {
+            Ok(part) => {
+                if !part.diff.is_empty() {
+                    combined.push_str(&part.diff);
+                    if !combined.ends_with('\n') {
+                        combined.push('\n');
+                    }
+                }
+                is_new_file = is_new_file || part.is_new_file;
+                is_deleted = is_deleted && part.is_deleted;
+            }
+            Err(_) => continue,
+        }
+    }
+
+    if combined.is_empty() {
+        return Err(AppError::from(format!("无法生成 diff: {rel}")));
+    }
+
+    Ok(FileDiffResult {
+        path: rel.to_string(),
+        diff: combined,
+        is_new_file,
+        is_deleted: false,
+    })
+}
+
+fn file_diff_single(cwd: &Path, rel: &str) -> AppResult<FileDiffResult> {
+    let full = cwd.join(rel);
+    if full.exists() {
+        if let Some(diff) = run_git(cwd, &["diff", "--no-color", "HEAD", "--", rel]) {
+            if !diff.is_empty() {
+                return Ok(FileDiffResult {
+                    path: rel.to_string(),
+                    diff,
+                    is_new_file: false,
+                    is_deleted: false,
+                });
+            }
+        }
+        if full.is_file() {
+            let content = std::fs::read_to_string(&full)?;
+            return Ok(FileDiffResult {
+                path: rel.to_string(),
+                diff: format_untracked_diff(rel, &content),
+                is_new_file: true,
+                is_deleted: false,
+            });
+        }
+    }
+
+    if let Some(diff) = run_git(cwd, &["diff", "--no-color", "HEAD", "--", rel]) {
+        if !diff.is_empty() {
+            return Ok(FileDiffResult {
+                path: rel.to_string(),
+                diff,
+                is_new_file: false,
+                is_deleted: !full.exists(),
+            });
+        }
+    }
+
+    Err(AppError::from(format!("无法生成 diff: {rel}")))
+}
+
+fn format_untracked_diff(path: &str, content: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut out = format!(
+        "diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{} @@\n",
+        lines.len().max(1)
+    );
+    if content.is_empty() {
+        out.push_str("\\ No newline at end of file\n");
+    } else {
+        for line in lines {
+            out.push('+');
+            out.push_str(line);
+            out.push('\n');
+        }
+        if !content.ends_with('\n') {
+            out.push_str("\\ No newline at end of file\n");
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod file_diff_tests {
+    use super::*;
+    use std::process::Command;
+
+    #[test]
+    fn file_diff_for_modified_tracked_file() {
+        let tmp = std::env::temp_dir().join(format!("warp-ade-git-diff-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&tmp)
+            .status()
+            .unwrap();
+        std::fs::write(tmp.join("hello.txt"), "hello\n").unwrap();
+        Command::new("git")
+            .args(["add", "hello.txt"])
+            .current_dir(&tmp)
+            .status()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-qm", "init"])
+            .current_dir(&tmp)
+            .status()
+            .unwrap();
+        std::fs::write(tmp.join("hello.txt"), "hello world\n").unwrap();
+
+        let result = file_diff(tmp.to_str().unwrap(), "hello.txt").unwrap();
+        assert!(result.diff.contains("+hello world"));
+        assert!(result.diff.contains("-hello"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn file_diff_for_untracked_directory() {
+        let tmp = std::env::temp_dir().join(format!("warp-ade-git-dir-{}", uuid::Uuid::new_v4()));
+        let nested = tmp.join("skills/web-scraper/src");
+        std::fs::create_dir_all(&nested).unwrap();
+        Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&tmp)
+            .status()
+            .unwrap();
+        std::fs::write(nested.join("index.ts"), "export const ok = true;\n").unwrap();
+
+        let result = file_diff(tmp.to_str().unwrap(), "skills/web-scraper").unwrap();
+        assert!(result.diff.contains("index.ts"));
+        assert!(result.is_new_file);
+
+        let expanded = expand_changes(
+            &tmp,
+            parse_status_porcelain("?? skills/web-scraper/\n"),
+        );
+        assert!(expanded.iter().any(|c| c.path.ends_with("index.ts")));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
 
 #[cfg(test)]

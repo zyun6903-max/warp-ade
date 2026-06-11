@@ -2,15 +2,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use reqwest::Client;
-use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::agent::context::{build_context, maybe_update_summary, AppContextSettings};
+use crate::agent::events::{emit_agent_phase, emit_tool_event};
 use crate::agent::history::{
     build_anthropic_agent_messages, build_openai_agent_messages, AgentLoopTurn, AgentToolCall,
     AgentToolResult,
 };
+use crate::agent::plan_mode::load_plan_mode_superpowers_skills;
+use crate::agent::project_context::{build_agent_system_prompt, build_plan_system_prompt, load_project_context};
 use crate::agent::parser::{agent_system_prompt, parse_tool_calls, ParsedToolCall};
+use crate::agent::tool_preview::{format_tool_call_preview, format_tool_done_preview};
+use crate::agent::tool_schema::{self};
 use crate::agent::audit;
 use crate::agent::subagent;
 use crate::agent::tools::{execute_tool, ToolContext, ToolResult};
@@ -21,15 +25,6 @@ use crate::providers::stream::{emit_done, emit_error};
 use crate::secrets;
 use crate::state::{AppState, PendingAgentPause};
 use crate::storage::db::{Database, Provider};
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentToolEvent {
-    pub session_id: String,
-    pub tool_name: String,
-    pub status: String,
-    pub preview: String,
-}
 
 fn audit_tool(db: &Database, session_id: &str, call: &ParsedToolCall, mode: &str, output: Option<&str>) {
     audit::log_tool_audit(
@@ -47,18 +42,17 @@ struct AgentRunInput {
     loop_turns: Vec<AgentLoopTurn>,
     provider_id: Option<String>,
     auto_failover: bool,
+    plan_mode: bool,
 }
 
-fn emit_tool(app: &AppHandle, session_id: &str, name: &str, status: &str, preview: &str) {
-    let _ = app.emit(
-        "agent-tool",
-        AgentToolEvent {
-            session_id: session_id.to_string(),
-            tool_name: name.to_string(),
-            status: status.to_string(),
-            preview: preview.chars().take(200).collect(),
-        },
-    );
+fn emit_tool(
+    app: &AppHandle,
+    session_id: &str,
+    call: &ParsedToolCall,
+    status: &str,
+    preview: &str,
+) {
+    emit_tool_event(app, session_id, &call.id, &call.name, status, preview);
 }
 
 fn chat_response(
@@ -89,7 +83,10 @@ pub async fn run_agent_turn(
     auto_failover: bool,
     cancel: Arc<AtomicBool>,
     settings: &AppContextSettings,
+    plan_mode: bool,
 ) -> AppResult<ChatResponse> {
+    emit_agent_phase(app, session_id, "turn-start", "正在处理请求…");
+    tokio::task::yield_now().await;
     run_agent_loop(
         app,
         state,
@@ -99,6 +96,7 @@ pub async fn run_agent_turn(
             loop_turns: Vec::new(),
             provider_id: provider_id.map(str::to_string),
             auto_failover,
+            plan_mode,
         },
         cancel,
         settings,
@@ -158,6 +156,7 @@ pub async fn resume_agent_with_pending(
             loop_turns,
             provider_id: pending.provider_id,
             auto_failover: pending.auto_failover,
+            plan_mode: pending.plan_mode,
         },
         cancel,
         settings,
@@ -176,6 +175,9 @@ async fn run_agent_loop(
     let db = Arc::clone(&state.db);
     let http = state.http.clone();
 
+    emit_agent_phase(app, session_id, "boot", "正在启动 Agent…");
+    tokio::task::yield_now().await;
+
     let providers = db.get_enabled_providers()?;
     if providers.is_empty() {
         return Err(AppError::from("未配置可用的模型服务"));
@@ -187,6 +189,17 @@ async fn run_agent_loop(
         .resolve_session_workspace(session_id)?
         .map(std::path::PathBuf::from);
 
+    let project_ctx = if let Some(ws) = workspace.clone() {
+        emit_agent_phase(app, session_id, "project-ctx", "正在加载项目上下文…");
+        tokio::task::yield_now().await;
+        tokio::task::spawn_blocking(move || load_project_context(&ws).ok())
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+
     let mut loop_turns = input.loop_turns;
     let user_text = input.user_text;
     let auto_failover = input.auto_failover;
@@ -194,14 +207,41 @@ async fn run_agent_loop(
     let mut errors: Vec<String> = Vec::new();
     let shell_policy = settings.shell_policy();
 
+    let plan_skills = if input.plan_mode {
+        emit_agent_phase(app, session_id, "plan-skills", "正在加载 Plan 技能…");
+        tokio::task::yield_now().await;
+        tokio::task::spawn_blocking(load_plan_mode_superpowers_skills)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     let mcp_servers: Vec<_> = db
         .list_mcp_servers()?
         .iter()
         .filter_map(|row| crate::mcp::McpServerRecord::from_row(row).ok())
         .collect();
+    if !input.plan_mode && mcp_servers.iter().any(|s| s.enabled) {
+        emit_agent_phase(app, session_id, "mcp", "正在连接 MCP 服务…");
+        tokio::task::yield_now().await;
+    }
     let _ = state.mcp.refresh_from_db(&mcp_servers);
-    let mcp_openai = state.mcp.openai_tool_definitions();
-    let mcp_anthropic = state.mcp.anthropic_tool_definitions();
+    let mcp_openai = if input.plan_mode {
+        Vec::new()
+    } else {
+        state.mcp.openai_tool_definitions()
+    };
+    let mcp_anthropic = if input.plan_mode {
+        Vec::new()
+    } else {
+        state.mcp.anthropic_tool_definitions()
+    };
+    let plan_base_openai = if input.plan_mode {
+        Some(tool_schema::plan_mode_openai_tools())
+    } else {
+        None
+    };
 
     'providers: for (index, provider) in ordered.iter().enumerate() {
         let api_key = match secrets::get_api_key(&provider.id) {
@@ -217,17 +257,28 @@ async fn run_agent_loop(
                 return Err(AppError::from("已取消生成"));
             }
 
+            emit_agent_phase(app, session_id, &format!("ctx-{_iteration}"), "正在准备对话上下文…");
+            tokio::task::yield_now().await;
+
             let ctx = build_context(&db, session_id, settings)?;
-            let mut system = agent_system_prompt().to_string();
-            if let Some(ref sum) = ctx.summary_prefix {
-                system.push_str("\n\n");
-                system.push_str(sum);
-            }
+            let system = if input.plan_mode {
+                build_plan_system_prompt(
+                    ctx.summary_prefix.as_deref(),
+                    project_ctx.as_ref(),
+                    &plan_skills,
+                )
+            } else {
+                build_agent_system_prompt(
+                    agent_system_prompt(),
+                    ctx.summary_prefix.as_deref(),
+                    project_ctx.as_ref(),
+                )
+            };
 
             let user_content = if loop_turns.is_empty() {
                 user_text.clone()
             } else {
-                "请根据上述工具结果继续。".to_string()
+                "请根据上述工具结果继续完成任务，不要向用户提问；完成后交付成品、核心逻辑与 Mermaid 流程图。".to_string()
             };
 
             let openai = build_openai_agent_messages(
@@ -239,6 +290,19 @@ async fn run_agent_loop(
             let anthropic =
                 build_anthropic_agent_messages(&ctx.recent, &loop_turns, &user_content);
 
+            let phase_msg = if loop_turns.is_empty() {
+                "正在分析请求…"
+            } else {
+                "正在根据工具结果继续…"
+            };
+            emit_agent_phase(
+                app,
+                session_id,
+                &format!("phase-{_iteration}"),
+                phase_msg,
+            );
+            tokio::task::yield_now().await;
+
             let result = stream_agent_completion(
                 &http,
                 provider,
@@ -246,6 +310,7 @@ async fn run_agent_loop(
                 openai,
                 anthropic,
                 &system,
+                plan_base_openai.as_deref(),
                 &mcp_openai,
                 &mcp_anthropic,
                 app,
@@ -271,9 +336,32 @@ async fn run_agent_loop(
                             format!("所有模型服务均失败：{}", errors.join("；"))
                         }));
                     }
+                    let next = &ordered[index + 1];
+                    emit_agent_phase(
+                        app,
+                        session_id,
+                        "failover",
+                        &format!("{} 不可用，正在切换至 {}…", provider.name, next.name),
+                    );
                     continue 'providers;
                 }
             };
+
+            let usage_input = format!("{user_content}\n{system}");
+            let usage_output = model_out.text.clone();
+            let db_usage = db.clone();
+            let pid = provider.id.clone();
+            let model_name = provider.default_model.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = crate::providers::usage::record_chat_usage(
+                    &db_usage,
+                    &pid,
+                    &model_name,
+                    &usage_input,
+                    &usage_output,
+                );
+            })
+            .await;
 
             let mut calls = model_out.tool_calls;
             let mut display = model_out.text;
@@ -310,11 +398,16 @@ async fn run_agent_loop(
                 session_id,
                 workspace: workspace.clone(),
                 shell_policy: shell_policy.clone(),
-                mcp: Some(&state.mcp),
+                mcp: if input.plan_mode {
+                    None
+                } else {
+                    Some(&state.mcp)
+                },
                 http: Some(&http),
                 web_search: settings.web_search_config(),
                 web_search_api_key,
                 readonly: false,
+                plan_mode: input.plan_mode,
                 semantic_search: settings.semantic_search_config(),
                 workspace_policy: settings.workspace_path_policy(),
                 bypass_outside_approval: false,
@@ -326,14 +419,29 @@ async fn run_agent_loop(
                 None;
 
             for call in &calls {
+                if input.plan_mode && call.name == "spawn_task" {
+                    emit_tool(app, session_id, call, "error", "plan blocked");
+                    batch_calls.push(AgentToolCall {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                    });
+                    batch_results.push(AgentToolResult {
+                        tool_call_id: call.id.clone(),
+                        name: call.name.clone(),
+                        content: "Plan 模式不允许 spawn_task".into(),
+                    });
+                    continue;
+                }
                 if call.name == "spawn_task" {
-                    emit_tool(app, session_id, &call.name, "start", "subagent");
+                    emit_tool(app, session_id, call, "start", "subagent");
                     match subagent::parse_spawn_task_args(&call.arguments) {
                         Ok(sub_input) => {
                             let preview = sub_input.description.chars().take(120).collect::<String>();
-                            emit_tool(
+                            emit_tool_event(
                                 app,
                                 session_id,
+                                &call.id,
                                 &format!("spawn_task:{}", sub_input.subagent_type),
                                 "start",
                                 &preview,
@@ -352,7 +460,7 @@ async fn run_agent_loop(
                             .await
                             {
                                 Ok(out) => {
-                                    emit_tool(app, session_id, &call.name, "done", &out);
+                                    emit_tool(app, session_id, call, "done", &out);
                                     audit_tool(&db, session_id, call, "ok", Some(&out));
                                     batch_calls.push(AgentToolCall {
                                         id: call.id.clone(),
@@ -366,7 +474,7 @@ async fn run_agent_loop(
                                     });
                                 }
                                 Err(err) => {
-                                    emit_tool(app, session_id, &call.name, "error", &err);
+                                    emit_tool(app, session_id, call, "error", &err);
                                     audit_tool(&db, session_id, call, "error", Some(&err));
                                     batch_calls.push(AgentToolCall {
                                         id: call.id.clone(),
@@ -382,7 +490,7 @@ async fn run_agent_loop(
                             }
                         }
                         Err(err) => {
-                            emit_tool(app, session_id, &call.name, "error", &err);
+                            emit_tool(app, session_id, call, "error", &err);
                             audit_tool(&db, session_id, call, "error", Some(&err));
                             batch_calls.push(AgentToolCall {
                                 id: call.id.clone(),
@@ -399,10 +507,12 @@ async fn run_agent_loop(
                     continue;
                 }
 
-                emit_tool(app, session_id, &call.name, "start", &call.name);
+                let args_preview = format_tool_call_preview(&call.name, &call.arguments);
+                emit_tool(app, session_id, call, "start", &args_preview);
                 match execute_tool(call, &tool_ctx) {
                     ToolResult::Ok(out) => {
-                        emit_tool(app, session_id, &call.name, "done", &out);
+                        let done_preview = format_tool_done_preview(&call.name, &call.arguments, &out);
+                        emit_tool(app, session_id, call, "done", &done_preview);
                         audit_tool(&db, session_id, call, "ok", Some(&out));
                         batch_calls.push(AgentToolCall {
                             id: call.id.clone(),
@@ -422,7 +532,7 @@ async fn run_agent_loop(
                             crate::agent::tools::PendingApproval::OutsideRead(p) => p.clone(),
                             crate::agent::tools::PendingApproval::OutsideWrite(p) => p.clone(),
                         };
-                        emit_tool(app, session_id, &call.name, "approval", &preview);
+                        emit_tool(app, session_id, call, "approval", &preview);
                         audit_tool(&db, session_id, call, "pending", Some(&preview));
                         pause = Some((
                             AgentToolCall {
@@ -436,7 +546,7 @@ async fn run_agent_loop(
                         break;
                     }
                     ToolResult::Err(err) => {
-                        emit_tool(app, session_id, &call.name, "error", &err);
+                        emit_tool(app, session_id, call, "error", &err);
                         audit_tool(&db, session_id, call, "error", Some(&err));
                         batch_calls.push(AgentToolCall {
                             id: call.id.clone(),
@@ -495,6 +605,7 @@ async fn run_agent_loop(
                         approval_payload: approval_payload.clone(),
                         provider_id: resume_provider_id.clone(),
                         auto_failover,
+                        plan_mode: input.plan_mode,
                     },
                 );
                 let response = ChatResponse {

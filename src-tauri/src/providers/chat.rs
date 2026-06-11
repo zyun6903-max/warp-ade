@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::agent::context::{build_context, load_context_settings, maybe_update_summary};
+use crate::agent::events::emit_agent_phase;
 use crate::error::{AppError, AppResult};
 use crate::secrets;
 use crate::storage::db::{CanonicalMessage, Database, MessagePart, Provider};
@@ -64,7 +65,69 @@ impl AttemptError {
 }
 
 pub(crate) fn is_retryable_http_status(status: u16) -> bool {
-    matches!(status, 429 | 500 | 502 | 503 | 504)
+    matches!(status, 429 | 500 | 502 | 503 | 504 | 529)
+}
+
+/// 业务层/响应体里的过载、限流类错误（常见于国内模型 API 返回 200 + error 或 SSE error）
+pub(crate) fn is_retryable_provider_error(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    const NEEDLES: &[&str] = &[
+        "1305",
+        "1302",
+        "1303",
+        "429",
+        "503",
+        "504",
+        "rate limit",
+        "rate_limit",
+        "ratelimit",
+        "too many requests",
+        "too many tokens",
+        "overloaded",
+        "overload",
+        "capacity",
+        "traffic",
+        "congestion",
+        "throttl",
+        "busy",
+        "temporarily unavailable",
+        "service unavailable",
+        "try again",
+        "retry later",
+        "访问量过大",
+        "访问人数过多",
+        "请求过多",
+        "请求过于频繁",
+        "请稍后再试",
+        "稍后重试",
+        "服务繁忙",
+        "系统繁忙",
+        "负载过高",
+        "限流",
+        "拥堵",
+        "拥挤",
+    ];
+    NEEDLES.iter().any(|needle| lower.contains(needle))
+}
+
+pub(crate) fn classify_provider_error_message(error: &str) -> AttemptError {
+    let msg = format!("模型服务错误: {error}");
+    if is_retryable_provider_error(error) {
+        AttemptError::Retryable(msg)
+    } else {
+        AttemptError::Fatal(msg)
+    }
+}
+
+pub(crate) fn classify_http_error(status: u16, body: &str) -> AttemptError {
+    let summary = summarize_error_body(body);
+    let msg = format!("模型服务错误 ({status}): {summary}");
+    if is_retryable_http_status(status) || is_retryable_provider_error(&summary) || is_retryable_provider_error(body)
+    {
+        AttemptError::Retryable(msg)
+    } else {
+        AttemptError::Fatal(msg)
+    }
 }
 
 pub fn order_providers(mut providers: Vec<Provider>, start_id: Option<&str>) -> Vec<Provider> {
@@ -120,6 +183,8 @@ pub async fn send_chat(
             ctx.summary_prefix.as_deref(),
         );
 
+        emit_agent_phase(app, session_id, "chat", "正在请求模型…");
+
         let result = match provider.api_format.as_str() {
             "anthropic_messages" => {
                 stream_anthropic_chat(
@@ -162,6 +227,22 @@ pub async fn send_chat(
                     pending_command: None,
                 };
                 emit_done(app, session_id, &response);
+
+                let db_usage = Arc::clone(&db);
+                let pid = provider.id.clone();
+                let model = provider.default_model.clone();
+                let input_owned = user_text.to_string();
+                let output_owned = content.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let _ = crate::providers::usage::record_chat_usage(
+                        &db_usage,
+                        &pid,
+                        &model,
+                        &input_owned,
+                        &output_owned,
+                    );
+                })
+                .await;
 
                 let db_clone = Arc::clone(&db);
                 let session_for_db = session_id.to_string();
@@ -210,6 +291,13 @@ pub async fn send_chat(
                         format!("所有模型服务均失败：{}", errors.join("；"))
                     }));
                 }
+                let next = &ordered[index + 1];
+                emit_agent_phase(
+                    app,
+                    session_id,
+                    "failover",
+                    &format!("{} 不可用，正在切换至 {}…", provider.name, next.name),
+                );
             }
         }
     }
@@ -374,17 +462,7 @@ pub async fn complete_openai(
     let body = response.text().await.map_err(map_http_error)?;
 
     if !status.is_success() {
-        return Err(if is_retryable_http_status(status.as_u16()) {
-            AttemptError::Retryable(format!(
-                "模型服务错误 ({status}): {}",
-                summarize_error_body(&body)
-            ))
-        } else {
-            AttemptError::Fatal(format!(
-                "模型服务错误 ({status}): {}",
-                summarize_error_body(&body)
-            ))
-        });
+        return Err(classify_http_error(status.as_u16(), &body));
     }
 
     let parsed: OpenAiResponse = serde_json::from_str(&body).map_err(|err| {
@@ -392,14 +470,12 @@ pub async fn complete_openai(
     })?;
 
     if let Some(error) = parsed.error {
-        return Err(AttemptError::Fatal(format!(
-            "模型服务错误: {}",
-            error.message.unwrap_or_else(|| "unknown".to_string())
-        )));
+        let message = error.message.unwrap_or_else(|| "unknown".to_string());
+        return Err(classify_provider_error_message(&message));
     }
 
     if let Some(message) = parsed.message {
-        return Err(AttemptError::Fatal(format!("模型服务错误: {message}")));
+        return Err(classify_provider_error_message(&message));
     }
 
     let content = parsed
@@ -466,17 +542,7 @@ pub(crate) async fn complete_anthropic(
     let body = response.text().await.map_err(map_http_error)?;
 
     if !status.is_success() {
-        return Err(if is_retryable_http_status(status.as_u16()) {
-            AttemptError::Retryable(format!(
-                "模型服务错误 ({status}): {}",
-                summarize_error_body(&body)
-            ))
-        } else {
-            AttemptError::Fatal(format!(
-                "模型服务错误 ({status}): {}",
-                summarize_error_body(&body)
-            ))
-        });
+        return Err(classify_http_error(status.as_u16(), &body));
     }
 
     let parsed: AnthropicResponse = serde_json::from_str(&body).map_err(|err| {
@@ -484,10 +550,8 @@ pub(crate) async fn complete_anthropic(
     })?;
 
     if let Some(error) = parsed.error {
-        return Err(AttemptError::Fatal(format!(
-            "模型服务错误: {}",
-            error.message.unwrap_or_else(|| "unknown".to_string())
-        )));
+        let message = error.message.unwrap_or_else(|| "unknown".to_string());
+        return Err(classify_provider_error_message(&message));
     }
 
     let content = parsed
@@ -603,5 +667,22 @@ mod tests {
             build_openai_chat_url("https://api.example.com"),
             "https://api.example.com/v1/chat/completions"
         );
+    }
+
+    #[test]
+    fn retryable_provider_overload_errors() {
+        assert!(is_retryable_provider_error(
+            "[1305][该模型当前访问量过大，请您稍后再试]"
+        ));
+        assert!(is_retryable_provider_error("rate limit exceeded"));
+        assert!(is_retryable_provider_error("503 Service Unavailable"));
+        assert!(!is_retryable_provider_error("invalid api key"));
+        assert!(!is_retryable_provider_error("model not found"));
+    }
+
+    #[test]
+    fn classify_overload_as_retryable() {
+        let err = classify_provider_error_message("[1305][该模型当前访问量过大，请您稍后再试]");
+        assert!(err.is_retryable());
     }
 }

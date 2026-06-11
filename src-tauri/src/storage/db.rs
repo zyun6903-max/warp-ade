@@ -23,6 +23,9 @@ fn run_migrations(conn: &mut Connection) -> AppResult<()> {
         M::up(include_str!("../../migrations/009_semantic_index.sql")),
         M::up(include_str!("../../migrations/010_tool_audit.sql")),
         M::up(include_str!("../../migrations/011_workspace_policy.sql")),
+        M::up(include_str!("../../migrations/012_agent_defaults.sql")),
+        M::up(include_str!("../../migrations/013_builtin_defaults.sql")),
+        M::up(include_str!("../../migrations/014_provider_usage.sql")),
     ]);
     migrations.to_latest(conn)?;
     Ok(())
@@ -132,6 +135,19 @@ pub struct Provider {
     pub priority: i64,
     pub enabled: bool,
     pub has_key: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderUsageRow {
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model: String,
+    pub request_count: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub test_count: i64,
+    pub last_used_at: Option<i64>,
 }
 
 pub fn open_db(app_data: &Path) -> AppResult<Database> {
@@ -704,6 +720,28 @@ impl Database {
         Ok(messages)
     }
 
+    /// Merges messages from `continued_from` ancestor sessions (import → continued native).
+    pub fn list_messages_for_chat(&self, session_id: &str) -> AppResult<Vec<MessageView>> {
+        let mut sessions = Vec::new();
+        let mut current = session_id.to_string();
+        for _ in 0..16 {
+            let Some(session) = self.get_session(&current)? else {
+                break;
+            };
+            sessions.push(session.clone());
+            match session.continued_from.filter(|s| !s.is_empty()) {
+                Some(parent) => current = parent,
+                None => break,
+            }
+        }
+        sessions.reverse();
+        let mut merged = Vec::new();
+        for sess in sessions {
+            merged.extend(self.list_messages(&sess.id)?);
+        }
+        Ok(merged)
+    }
+
     pub fn search_sessions(
         &self,
         query: &str,
@@ -939,8 +977,69 @@ impl Database {
     pub fn delete_provider(&self, provider_id: &str) -> AppResult<()> {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned")?;
         conn.execute("DELETE FROM providers WHERE id = ?1", params![provider_id])?;
+        conn.execute(
+            "DELETE FROM provider_usage WHERE provider_id = ?1",
+            params![provider_id],
+        )?;
         let _ = crate::secrets::delete_api_key(provider_id);
         Ok(())
+    }
+
+    pub fn record_provider_usage(
+        &self,
+        provider_id: &str,
+        model: &str,
+        input_tokens: i64,
+        output_tokens: i64,
+        is_test: bool,
+    ) -> AppResult<()> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned")?;
+        let now = chrono::Utc::now().timestamp();
+        let (req_inc, test_inc) = if is_test { (0, 1) } else { (1, 0) };
+        conn.execute(
+            "INSERT INTO provider_usage (provider_id, model, request_count, input_tokens, output_tokens, test_count, last_used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(provider_id, model) DO UPDATE SET
+               request_count = request_count + excluded.request_count,
+               input_tokens = input_tokens + excluded.input_tokens,
+               output_tokens = output_tokens + excluded.output_tokens,
+               test_count = test_count + excluded.test_count,
+               last_used_at = excluded.last_used_at",
+            params![
+                provider_id,
+                model,
+                req_inc,
+                input_tokens,
+                output_tokens,
+                test_inc,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_provider_usage_stats(&self) -> AppResult<Vec<ProviderUsageRow>> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned")?;
+        let mut stmt = conn.prepare(
+            "SELECT u.provider_id, COALESCE(p.name, u.provider_id), u.model,
+                    u.request_count, u.input_tokens, u.output_tokens, u.test_count, u.last_used_at
+             FROM provider_usage u
+             LEFT JOIN providers p ON p.id = u.provider_id
+             ORDER BY u.last_used_at DESC, p.name ASC, u.model ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ProviderUsageRow {
+                provider_id: row.get(0)?,
+                provider_name: row.get(1)?,
+                model: row.get(2)?,
+                request_count: row.get(3)?,
+                input_tokens: row.get(4)?,
+                output_tokens: row.get(5)?,
+                test_count: row.get(6)?,
+                last_used_at: row.get(7)?,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
     pub fn get_enabled_providers(&self) -> AppResult<Vec<Provider>> {
@@ -1029,14 +1128,17 @@ impl Database {
 
     pub fn resolve_session_workspace(&self, session_id: &str) -> AppResult<Option<String>> {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned")?;
-        let path: Option<String> = conn.query_row(
-            "SELECT COALESCE(NULLIF(TRIM(s.workspace_path), ''), NULLIF(TRIM(p.workspace_path), ''))
+        let path = conn
+            .query_row(
+                "SELECT COALESCE(NULLIF(TRIM(s.workspace_path), ''), NULLIF(TRIM(p.workspace_path), ''))
              FROM sessions s
              LEFT JOIN projects p ON p.id = s.project_id
              WHERE s.id = ?1",
-            params![session_id],
-            |row| row.get(0),
-        ).optional()?;
+                params![session_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
         Ok(path.filter(|p| !p.trim().is_empty()))
     }
 

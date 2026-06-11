@@ -67,9 +67,20 @@ pub struct ToolContext<'a> {
     pub web_search: WebSearchConfig,
     pub web_search_api_key: Option<String>,
     pub readonly: bool,
+    pub plan_mode: bool,
     pub semantic_search: SemanticSearchConfig,
     pub workspace_policy: WorkspacePathPolicy,
     pub bypass_outside_approval: bool,
+}
+
+fn plan_mode_blocked_tool(name: &str) -> bool {
+    matches!(name, "delete_file" | "run_command" | "spawn_task")
+}
+
+pub fn plan_mode_write_allowed(rel_path: &str) -> bool {
+    let normalized = rel_path.replace('\\', "/");
+    let p = normalized.trim_start_matches("./");
+    p.starts_with("docs/superpowers/") || p.starts_with("docs/plans/")
 }
 
 fn readonly_blocked_tool(name: &str) -> bool {
@@ -148,6 +159,20 @@ pub fn execute_paused_tool_call(
 pub fn execute_tool(call: &ParsedToolCall, ctx: &ToolContext<'_>) -> ToolResult {
     if ctx.readonly && readonly_blocked_tool(&call.name) {
         return ToolResult::Err("只读模式不允许此工具".into());
+    }
+    if ctx.plan_mode && plan_mode_blocked_tool(&call.name) {
+        return ToolResult::Err("Plan 模式不允许此工具，请切换 Agent 模式执行".into());
+    }
+    if ctx.plan_mode && matches!(call.name.as_str(), "write_file" | "apply_patch") {
+        let path = match arg_str(&call.arguments, "path") {
+            Some(p) => p,
+            None => return ToolResult::Err(format!("{} 需要 path 参数", call.name)),
+        };
+        if !plan_mode_write_allowed(&path) {
+            return ToolResult::Err(
+                "Plan 模式仅允许写入 docs/superpowers/ 或 docs/plans/ 下的设计/计划文档".into(),
+            );
+        }
     }
     if call.name.starts_with("mcp_") {
         return match ctx.mcp {
@@ -372,7 +397,7 @@ pub fn execute_tool(call: &ParsedToolCall, ctx: &ToolContext<'_>) -> ToolResult 
             }
             let api_key = match ctx.web_search_api_key.as_deref() {
                 Some(k) if !k.trim().is_empty() => k,
-                _ => return ToolResult::Err("未配置 Web 搜索 API Key，请在设置中配置".into()),
+                _ => return ToolResult::Err("未配置 Web 搜索 API Key（可设置 BRAVE_API_KEY 或 TAVILY_API_KEY 环境变量）".into()),
             };
             match crate::search::search_blocking(http, &cfg, api_key, &query) {
                 Ok(out) => ToolResult::Ok(out),
@@ -730,6 +755,14 @@ mod tests {
         let out = format_file_content(content, 2, Some(2));
         assert!(out.contains("2|b"));
         assert!(out.contains("3|c"));
+    }
+
+    #[test]
+    fn plan_mode_write_allowed_paths() {
+        assert!(plan_mode_write_allowed("docs/plans/foo.md"));
+        assert!(plan_mode_write_allowed("docs/superpowers/plans/bar.md"));
+        assert!(plan_mode_write_allowed("./docs/superpowers/specs/x.md"));
+        assert!(!plan_mode_write_allowed("src/main.rs"));
     }
 
     #[test]

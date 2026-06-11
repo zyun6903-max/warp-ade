@@ -10,6 +10,7 @@ use crate::agent::history::{
     build_anthropic_agent_messages, build_openai_agent_messages, AgentLoopTurn, AgentToolCall,
     AgentToolResult,
 };
+use crate::agent::project_context::{build_agent_system_prompt, load_project_context};
 use crate::agent::parser::parse_tool_calls;
 use crate::agent::tool_schema;
 use crate::agent::tools::{execute_tool, ToolContext, ToolResult};
@@ -94,7 +95,12 @@ pub async fn run_subagent(
     let shell_policy = settings.shell_policy();
     let web_search_api_key = secrets::get_api_key(crate::search::WEB_SEARCH_KEY_ACCOUNT).ok();
     let max_iterations = settings.agent_subagent_max_iterations.max(1).min(30);
-    let system = subagent_system_prompt(&input.subagent_type, input.readonly);
+    let base_system = subagent_system_prompt(&input.subagent_type, input.readonly);
+    let system = workspace
+        .as_ref()
+        .and_then(|ws| load_project_context(ws).ok())
+        .map(|bundle| build_agent_system_prompt(&base_system, None, Some(&bundle)))
+        .unwrap_or(base_system);
 
     let mcp_servers: Vec<_> = db
         .list_mcp_servers()
@@ -134,6 +140,7 @@ pub async fn run_subagent(
             openai,
             anthropic,
             &system,
+            None,
             &mcp_openai,
             &mcp_anthropic,
             app,
@@ -170,6 +177,7 @@ pub async fn run_subagent(
             web_search: settings.web_search_config(),
             web_search_api_key: web_search_api_key.clone(),
             readonly: input.readonly,
+            plan_mode: false,
             semantic_search: settings.semantic_search_config(),
             workspace_policy: settings.workspace_path_policy(),
             bypass_outside_approval: false,

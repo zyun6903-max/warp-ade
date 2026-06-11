@@ -19,14 +19,18 @@ export function sanitizeAgentMarkup(text: string): string {
   return out.trim();
 }
 
-export function flattenMessageParts(parts: MessagePart[]): { text: string; tools: string[] } {
+export function flattenMessageParts(parts: MessagePart[]): {
+  text: string;
+  tools: string[];
+  toolCounts: Map<string, number>;
+} {
   const textParts: string[] = [];
-  const tools: string[] = [];
+  const toolCounts = new Map<string, number>();
 
   for (const part of parts) {
     if (part.partType === "tool_call") {
       const label = part.name?.trim() || "工具";
-      if (!tools.includes(label)) tools.push(label);
+      toolCounts.set(label, (toolCounts.get(label) ?? 0) + 1);
       continue;
     }
     const raw = part.text?.trim();
@@ -37,7 +41,8 @@ export function flattenMessageParts(parts: MessagePart[]): { text: string; tools
 
   return {
     text: textParts.join("\n\n"),
-    tools,
+    tools: [...toolCounts.keys()],
+    toolCounts,
   };
 }
 

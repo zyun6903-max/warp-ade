@@ -54,6 +54,7 @@ function App() {
             isActive={page === "chat"}
             focusSessionId={focusSessionId}
             onFocusSessionHandled={() => setFocusSessionId(null)}
+            onNavigateToProviders={() => setPage("providers")}
           />
         </div>
         <div className={page === "providers" ? "page-panel" : "page-panel hidden"}>

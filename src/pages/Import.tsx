@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { displayProjectName } from "../utils/display";
 import {
   dedupeImportCandidates,
@@ -8,6 +9,7 @@ import {
   limitLatestPerProject,
 } from "../utils/importDisplay";
 import { zh } from "../i18n/zh";
+import { DismissibleNotice } from "../components/DismissibleNotice";
 import type {
   CursorImportCandidate,
   ImportSourceSearchHit,
@@ -15,6 +17,14 @@ import type {
   Session,
   SessionSearchHit,
 } from "../types";
+
+type ImportProgress = {
+  current: number;
+  total: number;
+  sourcePath: string;
+  status: string;
+  done: boolean;
+};
 
 type ImportSource = "cursor" | "claude" | "codex";
 
@@ -46,12 +56,28 @@ export function ImportPage({ onOpenSession }: ImportPageProps) {
   const [sourceHits, setSourceHits] = useState<ImportSourceSearchHit[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const searchGenRef = useRef(0);
 
   const dedupedCandidates = useMemo(
     () => dedupeImportCandidates(rawCandidates),
     [rawCandidates],
   );
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<ImportProgress>("import-progress", (event) => {
+      setImportProgress(event.payload);
+      if (event.payload.done) {
+        setImportProgress(null);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   const isSearching = searchQuery.trim().length > 0;
 
@@ -153,6 +179,22 @@ export function ImportPage({ onOpenSession }: ImportPageProps) {
     });
   }
 
+  async function openSessionInChat(sessionId: string) {
+    const session = await invoke<Session | null>("get_session", { sessionId });
+    if (!session?.id) {
+      setSearchError(zh.import.openSessionFailed);
+      return;
+    }
+    if (session.source !== "native") {
+      const continued = await invoke<Session>("continue_from_import", {
+        importedSessionId: session.id,
+      });
+      onOpenSession?.(continued.id);
+      return;
+    }
+    onOpenSession?.(session.id);
+  }
+
   async function importSelected() {
     setLoading(true);
     setMessage(null);
@@ -185,7 +227,7 @@ export function ImportPage({ onOpenSession }: ImportPageProps) {
         await scan(source);
       }
       if (session?.id) {
-        onOpenSession?.(session.id);
+        await openSessionInChat(session.id);
       } else {
         setSearchError(zh.import.openSessionFailed);
       }
@@ -290,8 +332,24 @@ export function ImportPage({ onOpenSession }: ImportPageProps) {
         </div>
       </header>
 
-      {message && <div className="info-banner">{message}</div>}
-      {searchError && <div className="error-toast">{searchError}</div>}
+      {message && (
+        <DismissibleNotice variant="banner" onDismiss={() => setMessage(null)}>
+          {message}
+        </DismissibleNotice>
+      )}
+      {importProgress && (
+        <div className="import-progress-bar">
+          <progress value={importProgress.current} max={importProgress.total || 1} />
+          <span className="muted">
+            {zh.import.progress(importProgress.current, importProgress.total, importProgress.status)}
+          </span>
+        </div>
+      )}
+      {searchError && (
+        <DismissibleNotice variant="error" onDismiss={() => setSearchError(null)}>
+          {searchError}
+        </DismissibleNotice>
+      )}
 
       {isSearching && (
         <section className="card import-table import-record-table">
@@ -322,7 +380,7 @@ export function ImportPage({ onOpenSession }: ImportPageProps) {
                         type="button"
                         className="btn-ghost import-row-action"
                         disabled={actionLoading === hit.session.id}
-                        onClick={() => onOpenSession?.(hit.session.id)}
+                        onClick={() => void openSessionInChat(hit.session.id)}
                       >
                         {zh.import.openInChat}
                       </button>

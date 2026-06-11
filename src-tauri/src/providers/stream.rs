@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter};
 
 use super::chat::{
-    build_anthropic_url, build_openai_chat_url, map_http_error, AttemptError, ChatResponse,
-    ChatStreamEvent, is_retryable_http_status, summarize_error_body,
+    build_anthropic_url, build_openai_chat_url, classify_http_error, classify_provider_error_message,
+    map_http_error, AttemptError, ChatResponse, ChatStreamEvent,
 };
 use crate::storage::db::{MessageView, Provider};
 
@@ -144,12 +144,7 @@ pub fn emit_error(app: &AppHandle, session_id: &str, error: &str) {
 }
 
 fn classify_http(status: u16, body: &str) -> AttemptError {
-    let msg = format!("模型服务错误 ({status}): {}", summarize_error_body(body));
-    if is_retryable_http_status(status) {
-        AttemptError::Retryable(msg)
-    } else {
-        AttemptError::Fatal(msg)
-    }
+    classify_http_error(status, body)
 }
 
 async fn read_openai_sse(
@@ -186,7 +181,7 @@ async fn read_openai_sse(
             })?;
 
             if let Some(error) = parsed.pointer("/error/message").and_then(|v| v.as_str()) {
-                return Err(AttemptError::Fatal(format!("模型服务错误: {error}")));
+                return Err(classify_provider_error_message(error));
             }
 
             let delta = parsed
@@ -259,7 +254,7 @@ async fn read_anthropic_sse(
                     .pointer("/error/message")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown stream error");
-                return Err(AttemptError::Fatal(format!("模型服务错误: {msg}")));
+                return Err(classify_provider_error_message(msg));
             }
 
             let event_type = parsed

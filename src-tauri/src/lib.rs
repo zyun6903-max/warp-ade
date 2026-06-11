@@ -17,18 +17,43 @@ use tauri::Manager;
 use state::AppState;
 use storage::db::{app_data_dir, open_db};
 
+fn bootstrap_app(db: &storage::db::Database) -> crate::error::AppResult<()> {
+    mcp::ensure_builtin_mcp_servers(db)?;
+    if !secrets::has_api_key(search::WEB_SEARCH_KEY_ACCOUNT)? {
+        if let Ok(key) = std::env::var("BRAVE_API_KEY") {
+            let key = key.trim();
+            if !key.is_empty() {
+                secrets::store_api_key(search::WEB_SEARCH_KEY_ACCOUNT, key)?;
+                let _ = db.set_setting("web_search_provider", "brave");
+            }
+        } else if let Ok(key) = std::env::var("TAVILY_API_KEY") {
+            let key = key.trim();
+            if !key.is_empty() {
+                secrets::store_api_key(search::WEB_SEARCH_KEY_ACCOUNT, key)?;
+                let _ = db.set_setting("web_search_provider", "tavily");
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = app_data_dir().expect("failed to resolve app data directory");
             let db = open_db(&data_dir).expect("failed to open database");
+            if let Err(e) = bootstrap_app(&db) {
+                eprintln!("bootstrap: {e}");
+            }
             app.manage(AppState::new(db));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_projects,
+            commands::pick_workspace_directory,
             commands::create_project,
             commands::list_sessions,
             commands::create_session,
@@ -58,6 +83,7 @@ pub fn run() {
             commands::get_session,
             commands::search_import_sources,
             commands::test_provider,
+            commands::list_provider_usage,
             commands::get_context_settings,
             commands::save_context_settings_cmd,
             commands::list_shell_audit_log,
@@ -68,8 +94,12 @@ pub fn run() {
             commands::continue_from_import,
             commands::send_message,
             commands::get_app_info,
+            commands::get_git_file_diff,
+            commands::get_project_context,
             commands::get_workspace_info,
             commands::checkout_git_branch,
+            commands::commit_git_changes,
+            commands::push_git_branch,
             commands::list_mcp_servers,
             commands::save_mcp_server,
             commands::delete_mcp_server,

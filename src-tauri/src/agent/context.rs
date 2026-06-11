@@ -37,15 +37,15 @@ impl Default for AppContextSettings {
             token_threshold: 60_000,
             summary_enabled: true,
             agent_max_iterations: 25,
-            agent_enabled_default: false,
+            agent_enabled_default: true,
             shell_auto_readonly: true,
             shell_always_confirm: false,
             shell_extra_allowlist: String::new(),
-            web_search_enabled: false,
+            web_search_enabled: true,
             web_search_provider: "brave".to_string(),
             web_search_max_results: 5,
             agent_subagent_max_iterations: 12,
-            semantic_search_enabled: false,
+            semantic_search_enabled: true,
             semantic_search_model: "text-embedding-3-small".to_string(),
             semantic_search_provider_id: String::new(),
             semantic_search_max_results: 8,
@@ -117,7 +117,7 @@ pub fn build_context(
     session_id: &str,
     settings: &AppContextSettings,
 ) -> AppResult<BuiltContext> {
-    let all = db.list_messages(session_id)?;
+    let all = db.list_messages_for_chat(session_id)?;
     let estimated_tokens = estimate_messages_tokens(&all);
     let summary_node = db.get_latest_context_node(session_id)?;
     let summary_prefix = summary_node.map(|n| {

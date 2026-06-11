@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { zh } from "../i18n/zh";
+import { DismissibleNotice } from "../components/DismissibleNotice";
 import { ProviderForm } from "./ProviderForm";
-import type { Provider } from "../types";
+import type { Provider, ProviderUsageRow } from "../types";
 
 type ProvidersPageProps = {
   isActive: boolean;
@@ -17,7 +18,30 @@ export function ProvidersPage({ isActive }: ProvidersPageProps) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [showUsage, setShowUsage] = useState(false);
+  const [usageRows, setUsageRows] = useState<ProviderUsageRow[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
   const dragIdRef = useRef<string | null>(null);
+
+  async function refreshUsage() {
+    setUsageLoading(true);
+    try {
+      setUsageRows(await invoke<ProviderUsageRow[]>("list_provider_usage"));
+    } catch (e) {
+      console.error(e);
+      setUsageRows([]);
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
+  async function toggleUsage() {
+    const next = !showUsage;
+    setShowUsage(next);
+    if (next) {
+      await refreshUsage();
+    }
+  }
 
   async function refresh() {
     setProviders(await invoke<Provider[]>("list_providers"));
@@ -150,12 +174,87 @@ export function ProvidersPage({ isActive }: ProvidersPageProps) {
           <h2>{zh.providers.title}</h2>
           <p className="muted">{zh.providers.subtitle}</p>
         </div>
-        <button type="button" className="btn-primary" onClick={openNew}>
-          + {zh.providers.addBtn}
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="btn-ghost" onClick={() => void toggleUsage()}>
+            {showUsage ? zh.providers.usageHide : zh.providers.usageShow}
+          </button>
+          <button type="button" className="btn-primary" onClick={openNew}>
+            + {zh.providers.addBtn}
+          </button>
+        </div>
       </header>
 
-      {message && <p className="form-message list-toast">{message}</p>}
+      {message && (
+        <DismissibleNotice variant="success" className="list-toast" onDismiss={() => setMessage(null)}>
+          {message}
+        </DismissibleNotice>
+      )}
+
+      {showUsage && (
+        <section className="card provider-usage-card">
+          <div className="provider-usage-head">
+            <h3>{zh.providers.usageTitle}</h3>
+            <button
+              type="button"
+              className="btn-ghost btn-sm"
+              disabled={usageLoading}
+              onClick={() => void refreshUsage()}
+            >
+              ↻
+            </button>
+          </div>
+          <p className="muted provider-usage-note">{zh.providers.usageEstimateNote}</p>
+          {usageLoading ? (
+            <p className="muted">{zh.settings.loading}</p>
+          ) : usageRows.length === 0 ? (
+            <p className="muted">{zh.providers.usageEmpty}</p>
+          ) : (
+            <>
+              <p className="provider-usage-summary muted">
+                {zh.providers.usageTotal(
+                  usageRows.reduce((n, r) => n + r.requestCount, 0),
+                  usageRows.reduce((n, r) => n + r.inputTokens, 0),
+                  usageRows.reduce((n, r) => n + r.outputTokens, 0),
+                )}
+              </p>
+              <div className="provider-usage-table-wrap">
+                <table className="provider-usage-table">
+                  <thead>
+                    <tr>
+                      <th>{zh.providers.usageProvider}</th>
+                      <th>{zh.providers.usageModel}</th>
+                      <th>{zh.providers.usageRequests}</th>
+                      <th>{zh.providers.usageInput}</th>
+                      <th>{zh.providers.usageOutput}</th>
+                      <th>{zh.providers.usageTests}</th>
+                      <th>{zh.providers.usageLastUsed}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageRows.map((row) => (
+                      <tr key={`${row.providerId}-${row.model}`}>
+                        <td>{row.providerName}</td>
+                        <td className="mono" title={row.model}>
+                          {row.model}
+                        </td>
+                        <td>{row.requestCount}</td>
+                        <td>{row.inputTokens.toLocaleString()}</td>
+                        <td>{row.outputTokens.toLocaleString()}</td>
+                        <td>{row.testCount}</td>
+                        <td>
+                          {row.lastUsedAt
+                            ? new Date(row.lastUsedAt * 1000).toLocaleString()
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <div className="provider-list">
         {providers.map((provider) => (

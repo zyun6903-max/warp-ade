@@ -172,15 +172,47 @@ export type McpTestResult = {
 
 export type AgentToolEvent = {
   sessionId: string;
+  callId: string;
   toolName: string;
   status: string;
   preview: string;
 };
 
+export type LiveToolStatus = "streaming" | "running" | "done" | "error" | "approval";
+
+export type LiveStep =
+  | { kind: "text"; id: string; content: string }
+  | { kind: "status"; id: string; label: string }
+  | {
+      kind: "tool";
+      id: string;
+      toolName: string;
+      status: LiveToolStatus;
+      preview: string;
+    };
+
+export type QueuedMessage = {
+  id: string;
+  content: string;
+  attachments: ChatAttachment[];
+};
+
 export type TestProviderResult = {
   ok: boolean;
+  model: string;
   latencyMs: number;
   message: string;
+};
+
+export type ProviderUsageRow = {
+  providerId: string;
+  providerName: string;
+  model: string;
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  testCount: number;
+  lastUsedAt?: number;
 };
 
 export type AppInfo = {
@@ -237,6 +269,33 @@ export type ChatAttachment = {
 export type BatchImportResult = {
   imported: number;
   skipped: number;
+};
+
+export type ProjectRuleEntry = {
+  label: string;
+  path: string;
+  chars: number;
+};
+
+export type SkillEntry = {
+  name: string;
+  description: string;
+  path: string;
+  source: string;
+  chars: number;
+};
+
+export type ProjectContextBundle = {
+  workspacePath: string;
+  rules: ProjectRuleEntry[];
+  skills: SkillEntry[];
+};
+
+export type FileDiffResult = {
+  path: string;
+  diff: string;
+  isNewFile: boolean;
+  isDeleted: boolean;
 };
 
 export type Page = "chat" | "providers" | "import" | "settings";

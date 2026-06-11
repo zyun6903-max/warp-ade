@@ -40,7 +40,7 @@
 | 语义代码搜索 | ✅ | ❌ | ✅ codebase_search |
 | Linter/Diagnostics | ✅ | ❌ | ❌ 可接 MCP |
 | Notebook 编辑 | ✅ | ✅ | ❌ 低优先级 |
-| 图片/多模态读 | ✅ | ✅ | ❌ |
+| 图片/多模态读 | ✅ | ✅ | ⚠️ 路径 + read_file base64 |
 | Skills / Hooks | ✅ | ✅ | ❌ 产品层 |
 
 ## 本次迭代（P2 续）

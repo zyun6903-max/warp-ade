@@ -9,9 +9,11 @@ date: 2026-06-11
 
 ## Overview
 
-**warp-ade** 是一款本地安装的跨平台 AI 开发环境（ADE），对标 Codex App / Warp ADE 的产品形态，并融合 CC Switch 的多 Provider 管理能力。用户可在 Mac 上通过可视化界面完成：多 API Key / Base URL 配置与自动切换、AI Agent 对话、Cursor 与 Claude Code 聊天记录导入，以及本地持久化存储与压缩以节省磁盘与 Token。
+**warp-ade** 是一款**轻量本地 App**，四核重心：**① 模型配置 ② 项目开发 ③ Agent ④ MCP/Skills**。**已有功能全部保留**；后续新增优先补四核缺口，不堆非核心能力。
 
-**当前仓库状态：** 100% greenfield（仅 `README.md` + Rust `.gitignore`），无现有实现代码。
+> 产品范围：[`2026-06-11-replacement-parity.md`](./2026-06-11-replacement-parity.md)
+
+**当前仓库状态：** 四核 + 导入/语义搜索/MCP/附件等已实现；下一步优先 CLAUDE.md 注入、settings.json 互通、Skills 加载。
 
 **技术选型（已决策）：**
 

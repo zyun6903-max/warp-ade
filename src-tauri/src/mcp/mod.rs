@@ -1,3 +1,6 @@
+mod builtin;
+
+pub use builtin::ensure_builtin_mcp_servers;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -95,9 +98,34 @@ impl StdioMcpClient {
     }
 
     fn connect_and_init(record: &McpServerRecord) -> AppResult<Self> {
-        let mut client = Self::spawn(record)?;
-        client.initialize()?;
-        Ok(client)
+        Self::connect_and_init_with_timeout(record, Duration::from_secs(10))
+    }
+
+    fn connect_and_init_with_timeout(
+        record: &McpServerRecord,
+        timeout: Duration,
+    ) -> AppResult<Self> {
+        let record = record.clone();
+        let server_name = record.name.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(Self::spawn(&record).and_then(|mut c| {
+                c.initialize()?;
+                Ok(c)
+            }));
+        });
+        match rx.recv_timeout(timeout) {
+            Ok(Ok(client)) => Ok(client),
+            Ok(Err(err)) => Err(err),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(AppError::from(format!(
+                "MCP {} 连接超时（{} 秒）",
+                server_name,
+                timeout.as_secs()
+            ))),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(AppError::from(format!("MCP {} 连接失败", server_name)))
+            }
+        }
     }
 
     fn initialize(&mut self) -> AppResult<()> {

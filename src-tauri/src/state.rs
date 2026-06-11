@@ -20,6 +20,7 @@ pub struct PendingAgentPause {
     pub approval_payload: String,
     pub provider_id: Option<String>,
     pub auto_failover: bool,
+    pub plan_mode: bool,
 }
 
 pub struct AppState {

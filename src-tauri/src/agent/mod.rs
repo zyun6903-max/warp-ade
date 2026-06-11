@@ -1,3 +1,6 @@
+pub mod events;
+pub mod plan_mode;
+pub mod project_context;
 pub mod workspace_policy;
 pub mod audit;
 pub mod subagent;
@@ -7,6 +10,7 @@ pub mod loop_runner;
 pub mod parser;
 pub mod shell_policy;
 pub mod tool_schema;
+pub mod tool_preview;
 pub mod tools;
 
 pub use context::{

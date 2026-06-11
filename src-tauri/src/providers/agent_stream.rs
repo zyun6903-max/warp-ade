@@ -4,13 +4,15 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use reqwest::Client;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tauri::AppHandle;
 
+use crate::agent::events::{emit_agent_phase, emit_tool_event};
 use crate::agent::parser::ParsedToolCall;
 use crate::agent::tool_schema::{tool_definitions_anthropic, tool_definitions_openai};
 use crate::providers::chat::{
-    build_anthropic_url, build_openai_chat_url, map_http_error, AttemptError,
+    build_anthropic_url, build_openai_chat_url, classify_http_error, classify_provider_error_message,
+    map_http_error, AttemptError,
 };
 use crate::providers::stream::emit_chunk;
 use crate::storage::db::Provider;
@@ -28,6 +30,7 @@ pub async fn stream_agent_completion(
     openai_messages: Vec<Value>,
     anthropic_messages: Vec<Value>,
     system: &str,
+    base_openai_tools: Option<&[Value]>,
     extra_openai_tools: &[Value],
     extra_anthropic_tools: &[Value],
     app: &AppHandle,
@@ -42,6 +45,7 @@ pub async fn stream_agent_completion(
                 api_key,
                 anthropic_messages,
                 system,
+                base_openai_tools,
                 extra_anthropic_tools,
                 app,
                 session_id,
@@ -55,6 +59,7 @@ pub async fn stream_agent_completion(
                 provider,
                 api_key,
                 openai_messages,
+                base_openai_tools,
                 extra_openai_tools,
                 app,
                 session_id,
@@ -70,14 +75,19 @@ pub async fn stream_openai_agent(
     provider: &Provider,
     api_key: &str,
     messages: Vec<Value>,
+    base_openai_tools: Option<&[Value]>,
     extra_tools: &[Value],
     app: &AppHandle,
     session_id: &str,
     cancel: Arc<AtomicBool>,
 ) -> Result<AgentStreamResult, AttemptError> {
     let url = build_openai_chat_url(&provider.base_url);
-    let mut tools = tool_definitions_openai();
+    let mut tools = match base_openai_tools {
+        Some(base) => base.to_vec(),
+        None => tool_definitions_openai(),
+    };
     tools.extend(extra_tools.iter().cloned());
+    emit_agent_phase(app, session_id, "connect", "正在请求模型…");
     let response = http
         .post(&url)
         .header("Authorization", format!("Bearer {api_key}"))
@@ -123,14 +133,29 @@ pub async fn stream_anthropic_agent(
     api_key: &str,
     messages: Vec<Value>,
     system: &str,
+    base_openai_tools: Option<&[Value]>,
     extra_tools: &[Value],
     app: &AppHandle,
     session_id: &str,
     cancel: Arc<AtomicBool>,
 ) -> Result<AgentStreamResult, AttemptError> {
     let url = build_anthropic_url(&provider.base_url);
-    let mut tools = tool_definitions_anthropic();
+    let mut tools = match base_openai_tools {
+        Some(base) => base
+            .iter()
+            .filter_map(|t| {
+                let f = t.get("function")?;
+                Some(json!({
+                    "name": f.get("name")?,
+                    "description": f.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+                    "input_schema": f.get("parameters")?.clone()
+                }))
+            })
+            .collect::<Vec<_>>(),
+        None => tool_definitions_anthropic(),
+    };
     tools.extend(extra_tools.iter().cloned());
+    emit_agent_phase(app, session_id, "connect", "正在请求模型…");
     let response = http
         .post(&url)
         .header("x-api-key", api_key)
@@ -177,6 +202,7 @@ struct OpenAiToolPart {
     id: Option<String>,
     name: Option<String>,
     arguments: String,
+    announced: bool,
 }
 
 enum AnthropicBlock {
@@ -185,6 +211,7 @@ enum AnthropicBlock {
         id: String,
         name: String,
         input_json: String,
+        announced: bool,
     },
 }
 
@@ -222,7 +249,7 @@ async fn read_openai_agent_sse(
                 .map_err(|err| AttemptError::Fatal(format!("无法解析流式响应: {err}")))?;
 
             if let Some(error) = parsed.pointer("/error/message").and_then(|v| v.as_str()) {
-                return Err(AttemptError::Fatal(format!("模型服务错误: {error}")));
+                return Err(classify_provider_error_message(error));
             }
 
             let delta = &parsed["choices"][0]["delta"];
@@ -250,11 +277,40 @@ async fn read_openai_agent_sse(
                         part.id = Some(id.to_string());
                     }
                     if let Some(name) = call.pointer("/function/name").and_then(|v| v.as_str()) {
-                        part.name = Some(name.to_string());
+                        if part.name.is_none() {
+                            part.name = Some(name.to_string());
+                            part.announced = true;
+                            let call_id = part
+                                .id
+                                .clone()
+                                .unwrap_or_else(|| format!("stream-{index}"));
+                            emit_tool_event(
+                                app,
+                                session_id,
+                                &call_id,
+                                name,
+                                "streaming",
+                                "",
+                            );
+                        }
                     }
                     if let Some(args) = call.pointer("/function/arguments").and_then(|v| v.as_str())
                     {
                         part.arguments.push_str(args);
+                        if let Some(name) = &part.name {
+                            let call_id = part
+                                .id
+                                .clone()
+                                .unwrap_or_else(|| format!("stream-{index}"));
+                            emit_tool_event(
+                                app,
+                                session_id,
+                                &call_id,
+                                name,
+                                "streaming",
+                                &part.arguments,
+                            );
+                        }
                     }
                 }
             }
@@ -342,7 +398,7 @@ async fn read_anthropic_agent_sse(
                     .pointer("/error/message")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown stream error");
-                return Err(AttemptError::Fatal(format!("模型服务错误: {msg}")));
+                return Err(classify_provider_error_message(msg));
             }
 
             if event_type == "content_block_start" {
@@ -350,20 +406,26 @@ async fn read_anthropic_agent_sse(
                 let block = &parsed["content_block"];
                 let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if block_type == "tool_use" {
+                    let id = block
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let name = block
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !name.is_empty() {
+                        emit_tool_event(app, session_id, &id, &name, "streaming", "");
+                    }
                     blocks.insert(
                         index,
                         AnthropicBlock::Tool {
-                            id: block
-                                .get("id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            name: block
-                                .get("name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
+                            id,
+                            name,
                             input_json: String::new(),
+                            announced: true,
                         },
                     );
                 } else if block_type == "text" {
@@ -387,10 +449,24 @@ async fn read_anthropic_agent_sse(
                     }
                 } else if delta_type == "input_json_delta" {
                     if let Some(partial) = delta.get("partial_json").and_then(|v| v.as_str()) {
-                        if let Some(AnthropicBlock::Tool { input_json, .. }) =
-                            blocks.get_mut(&index)
+                        if let Some(AnthropicBlock::Tool {
+                            id,
+                            name,
+                            input_json,
+                            ..
+                        }) = blocks.get_mut(&index)
                         {
                             input_json.push_str(partial);
+                            if !name.is_empty() {
+                                emit_tool_event(
+                                    app,
+                                    session_id,
+                                    id,
+                                    name,
+                                    "streaming",
+                                    input_json,
+                                );
+                            }
                         }
                     }
                 }
@@ -411,6 +487,7 @@ fn finalize_anthropic_tools(blocks: &HashMap<usize, AnthropicBlock>) -> Vec<Pars
                 id,
                 name,
                 input_json,
+                announced: _,
             } = blocks.get(&i)?
             else {
                 return None;
@@ -438,11 +515,5 @@ fn finalize_anthropic_tools(blocks: &HashMap<usize, AnthropicBlock>) -> Vec<Pars
 }
 
 fn classify_http_in_agent(status: u16, body: &str) -> AttemptError {
-    use crate::providers::chat::{is_retryable_http_status, summarize_error_body};
-    let msg = format!("模型服务错误 ({status}): {}", summarize_error_body(body));
-    if is_retryable_http_status(status) {
-        AttemptError::Retryable(msg)
-    } else {
-        AttemptError::Fatal(msg)
-    }
+    classify_http_error(status, body)
 }

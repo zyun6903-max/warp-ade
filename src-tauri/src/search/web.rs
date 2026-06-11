@@ -36,7 +36,7 @@ pub fn search_blocking(
     query: &str,
 ) -> AppResult<String> {
     if !config.enabled {
-        return Err(AppError::from("Web 搜索未启用，请在设置中开启并配置 API Key"));
+        return Err(AppError::from("Web 搜索未启用"));
     }
     if api_key.trim().is_empty() {
         return Err(AppError::from("未配置 Web 搜索 API Key"));

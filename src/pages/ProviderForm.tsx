@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { zh } from "../i18n/zh";
+import { DismissibleNotice } from "../components/DismissibleNotice";
 import type { Provider, SaveProviderInput, TestProviderResult } from "../types";
 
 const emptyForm: SaveProviderInput = {
@@ -11,6 +12,18 @@ const emptyForm: SaveProviderInput = {
   defaultModel: "claude-sonnet-4-20250514",
   enabled: true,
 };
+
+function parseModels(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of text.split(",")) {
+    const model = part.trim();
+    if (!model || seen.has(model)) continue;
+    seen.add(model);
+    out.push(model);
+  }
+  return out;
+}
 
 type ProviderFormProps = {
   provider: Provider | null;
@@ -38,38 +51,53 @@ export function ProviderForm({ provider, onBack, onSaved }: ProviderFormProps) {
   );
   const [apiKey, setApiKey] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [messageOk, setMessageOk] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [testingModel, setTestingModel] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, TestProviderResult>>({});
 
-  async function handleTest() {
+  const parsedModels = useMemo(() => parseModels(modelsText), [modelsText]);
+
+  async function runModelTest(model: string) {
     setMessage(null);
 
     if (!form.id && !apiKey.trim()) {
+      setMessageOk(false);
       setMessage(zh.providers.needApiKeyForTest);
       return;
     }
 
-    const models = modelsText
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
-
-    setTesting(true);
+    setTestingModel(model);
     try {
       const result = await invoke<TestProviderResult>("test_provider", {
         input: {
           providerId: form.id,
           baseUrl: form.baseUrl,
           apiFormat: form.apiFormat,
-          defaultModel: form.defaultModel || models[0] || "",
+          defaultModel: form.defaultModel || model,
+          model,
           apiKey: apiKey.trim() || undefined,
         },
       });
-      setMessage(result.message);
+      setTestResults((prev) => ({ ...prev, [model]: result }));
     } catch (err) {
-      setMessage(String(err));
+      setTestResults((prev) => ({
+        ...prev,
+        [model]: {
+          ok: false,
+          model,
+          latencyMs: 0,
+          message: String(err),
+        },
+      }));
     } finally {
-      setTesting(false);
+      setTestingModel(null);
+    }
+  }
+
+  async function handleTestAll() {
+    for (const model of parsedModels) {
+      await runModelTest(model);
     }
   }
 
@@ -78,14 +106,17 @@ export function ProviderForm({ provider, onBack, onSaved }: ProviderFormProps) {
     setMessage(null);
 
     if (!form.id && !apiKey.trim()) {
+      setMessageOk(false);
       setMessage(zh.providers.needApiKey);
       return;
     }
 
-    const models = modelsText
-      .split(",")
-      .map((m) => m.trim())
-      .filter(Boolean);
+    const models = parseModels(modelsText);
+    if (models.length === 0) {
+      setMessageOk(false);
+      setMessage("请至少填写一个模型");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -102,16 +133,20 @@ export function ProviderForm({ provider, onBack, onSaved }: ProviderFormProps) {
         },
       });
       if (!saved.hasKey) {
+        setMessageOk(true);
         setMessage(`${zh.providers.savedOk}（${zh.providers.noKey}）`);
         return;
       }
       onSaved();
     } catch (err) {
+      setMessageOk(false);
       setMessage(String(err));
     } finally {
       setSaving(false);
     }
   }
+
+  const testing = testingModel !== null;
 
   return (
     <div className="page provider-form-page">
@@ -151,21 +186,90 @@ export function ProviderForm({ provider, onBack, onSaved }: ProviderFormProps) {
                 value={form.apiFormat}
                 onChange={(e) => setForm({ ...form, apiFormat: e.target.value })}
               >
-              <option value="anthropic_messages">{zh.providers.anthropic}</option>
-              <option value="openai_chat">{zh.providers.openai}</option>
+                <option value="anthropic_messages">{zh.providers.anthropic}</option>
+                <option value="openai_chat">{zh.providers.openai}</option>
               </select>
             </label>
-            <label>
-              {zh.providers.models}
-              <input value={modelsText} onChange={(e) => setModelsText(e.target.value)} />
-            </label>
-            <label>
-              {zh.providers.defaultModel}
+
+            <div className="provider-models-block">
+              <div className="provider-models-head">
+                <span className="provider-models-label">{zh.providers.models}</span>
+                {parsedModels.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn-ghost btn-sm"
+                    disabled={testing || saving}
+                    onClick={() => void handleTestAll()}
+                  >
+                    {zh.providers.testAll}
+                  </button>
+                )}
+              </div>
               <input
-                value={form.defaultModel}
-                onChange={(e) => setForm({ ...form, defaultModel: e.target.value })}
+                value={modelsText}
+                onChange={(e) => {
+                  setModelsText(e.target.value);
+                  const models = parseModels(e.target.value);
+                  setForm((prev) => ({
+                    ...prev,
+                    models,
+                    defaultModel: models.includes(prev.defaultModel ?? "")
+                      ? prev.defaultModel
+                      : models[0] ?? "",
+                  }));
+                }}
+                placeholder="model-a, model-b"
               />
-            </label>
+              {parsedModels.length > 0 && (
+                <ul className="provider-model-list">
+                  {parsedModels.map((model) => {
+                    const result = testResults[model];
+                    const isDefault = form.defaultModel === model;
+                    return (
+                      <li key={model} className="provider-model-row">
+                        <div className="provider-model-main">
+                          <span className="provider-model-name" title={model}>
+                            {model}
+                          </span>
+                          {isDefault && (
+                            <span className="provider-model-tag">{zh.providers.defaultModelTag}</span>
+                          )}
+                        </div>
+                        <div className="provider-model-actions">
+                          {!isDefault && (
+                            <button
+                              type="button"
+                              className="btn-ghost btn-sm"
+                              disabled={testing || saving}
+                              onClick={() => setForm({ ...form, defaultModel: model })}
+                            >
+                              {zh.providers.setDefaultModel}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-ghost btn-sm"
+                            disabled={testing || saving}
+                            onClick={() => void runModelTest(model)}
+                          >
+                            {testingModel === model ? zh.providers.testing : zh.providers.testModel}
+                          </button>
+                        </div>
+                        {result && (
+                          <p
+                            className={`provider-model-result ${result.ok ? "ok" : "err"}`}
+                            title={result.message}
+                          >
+                            {result.message}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
             <div className="toggle-row">
               <div className="toggle-copy">
                 <span className="toggle-title">{zh.providers.enabled}</span>
@@ -196,7 +300,14 @@ export function ProviderForm({ provider, onBack, onSaved }: ProviderFormProps) {
           </div>
         </form>
         <div className="provider-form-footer">
-          {message && <p className="form-message">{message}</p>}
+          {message && (
+            <DismissibleNotice
+              variant={messageOk ? "success" : "error"}
+              onDismiss={() => setMessage(null)}
+            >
+              {message}
+            </DismissibleNotice>
+          )}
           <div className="form-actions">
             <button type="button" className="btn-ghost" onClick={onBack} disabled={saving || testing}>
               {zh.providers.cancel}
@@ -204,8 +315,11 @@ export function ProviderForm({ provider, onBack, onSaved }: ProviderFormProps) {
             <button
               type="button"
               className="btn-ghost"
-              onClick={handleTest}
-              disabled={saving || testing}
+              disabled={saving || testing || parsedModels.length === 0}
+              onClick={() => {
+                const model = form.defaultModel || parsedModels[0];
+                if (model) void runModelTest(model);
+              }}
             >
               {testing ? zh.providers.testing : zh.providers.testConnection}
             </button>

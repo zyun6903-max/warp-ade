@@ -1,5 +1,7 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { zh } from "../i18n/zh";
 import type { MessageView } from "../types";
 import {
   flattenMessageParts,
@@ -11,21 +13,52 @@ type MessageBodyProps = {
 };
 
 export function MessageBody({ message }: MessageBodyProps) {
-  const { text, tools } = flattenMessageParts(message.parts);
+  const { text, toolCounts } = flattenMessageParts(message.parts);
+  const toolEntries = [...toolCounts.entries()];
+  const totalTools = toolEntries.reduce((sum, [, count]) => sum + count, 0);
+  const [toolsExpanded, setToolsExpanded] = useState(false);
 
-  if (!text.trim() && tools.length === 0) {
+  if (!text.trim() && toolEntries.length === 0) {
     return <div className="message-body muted">—</div>;
   }
 
+  const showCollapsedTools = totalTools > 1 && !toolsExpanded;
+
   return (
     <div className="message-body-wrap">
-      {tools.length > 0 && (
+      {toolEntries.length > 0 && (
         <div className="message-tool-row" aria-label="工具调用">
-          {tools.map((name) => (
-            <span key={name} className="message-tool-chip">
-              {name}
-            </span>
-          ))}
+          {showCollapsedTools ? (
+            <button
+              type="button"
+              className="message-tool-collapse"
+              onClick={() => setToolsExpanded(true)}
+            >
+              {toolEntries
+                .map(([name, count]) =>
+                  count > 1 ? `${name} ×${count}` : name,
+                )
+                .join(" · ")}
+              <span className="message-tool-ellipsis"> …</span>
+            </button>
+          ) : (
+            <>
+              {toolEntries.map(([name, count]) => (
+                <span key={name} className="message-tool-chip">
+                  {count > 1 ? `${name} ×${count}` : name}
+                </span>
+              ))}
+              {totalTools > 1 ? (
+                <button
+                  type="button"
+                  className="message-tool-collapse-btn"
+                  onClick={() => setToolsExpanded(false)}
+                >
+                  {zh.chat.toolGroupFold}
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
       )}
       {text.trim() ? (

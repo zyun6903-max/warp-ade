@@ -12,10 +12,52 @@ Mac-first · Tauri 2 + Rust + React
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
 
 1. 打开 DMG，将 **warp-ade** 拖入「应用程序」文件夹  
-2. 首次启动若被 Gatekeeper 拦截：系统设置 → 隐私与安全性 → 仍要打开  
-3. 首次使用请先在 **模型服务** 中配置 Provider 与 API Key
+2. 首次使用请先在 **模型服务** 中配置 Provider 与 API Key
 
 > 最新版本与更新说明见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
+
+### 打不开 / 提示「已损坏，无法打开」？
+
+当前版本**未做 Apple 开发者签名与公证**，macOS 会误报为「已损坏」。**所有从网络下载的未签名应用都会这样**，不是安装包坏了。
+
+#### 方式 A：一键安装脚本（推荐给同事）
+
+在终端粘贴运行（需联网，自动下载 + 安装 + 去隔离）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zyun6903-max/warp-ade/main/scripts/install-macos.sh | bash
+```
+
+或克隆仓库后双击 `scripts/install-macos.command`（会打开终端执行同样流程）。
+
+#### 方式 B：手动安装
+
+```bash
+# 1. 从 GitHub 下载 DMG 到「下载」文件夹（不要用钉钉/微信转发）
+# 2. 终端执行：
+xattr -cr ~/Downloads/warp-ade_0.1.0_aarch64.dmg
+open ~/Downloads/warp-ade_0.1.0_aarch64.dmg
+# 3. 拖入「应用程序」后：
+xattr -cr /Applications/warp-ade.app
+open /Applications/warp-ade.app
+```
+
+#### 方式 C：不用终端
+
+Finder 中 **Control + 点击 warp-ade → 打开 → 仍要打开**（安装到「应用程序」后对 `.app` 各操作一次）。
+
+若仍被拦截：**系统设置 → 隐私与安全性 → 仍要打开**。
+
+#### 分发时注意
+
+| 做法 | 结果 |
+|------|------|
+| 同事自己从 GitHub Releases 下载 | ✅ 配合上面任一方式即可 |
+| 钉钉 / 微信 / 飞书传 `.dmg` | ❌ 隔离标记更重，几乎必报错 |
+| 内网文件服务器 + 安装脚本 | ✅ 可以 |
+| Apple 签名 + 公证（$99/年） | ✅ 双击即装，无需绕过 |
+
+> 长期方案：配置 Apple Developer 签名 + 公证后，可像其他成熟项目一样直接双击安装。
 
 ## 界面预览
 

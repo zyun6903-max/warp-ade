@@ -11,61 +11,37 @@ Mac-first · Tauri 2 + Rust + React
 |------|------|------|
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
 
-> ⚠️ **不要直接双击安装**。当前版本未签名，从 GitHub 下载后 macOS 会误报「**已损坏，无法打开**」——安装包没问题，见下方正确步骤。
+### 安装（2 步）
 
-### 同事安装步骤（能下载 GitHub，但双击报错时）
+1. **双击打开** DMG  
+2. **双击**「**安装 warp-ade.command**」
 
-**原因**：浏览器下载会加隔离标记 + 应用未 Apple 签名 → Gatekeeper 拦截，不是网络问题。
+若提示无法打开：**Control + 点击**「安装 warp-ade.command」→ **打开** → **仍要打开**（只需首次一次）。
 
-**推荐：下载 DMG + 运行安装脚本（2 步）**
+安装程序会自动清除隔离标记、复制到「应用程序」并启动。**无需终端、无需额外脚本。**
 
-1. 从 [Releases](https://github.com/zyun6903-max/warp-ade/releases/latest) 下载 `warp-ade_0.1.0_aarch64.dmg` 到「下载」文件夹  
-2. 再下载 [install-from-local.sh](https://raw.githubusercontent.com/zyun6903-max/warp-ade/main/scripts/install-from-local.sh) 到同一文件夹  
-3. 打开终端，执行：
-
-```bash
-bash ~/Downloads/install-from-local.sh
-```
-
-脚本会自动找到「下载」里的 DMG → 清除隔离标记 → 安装到「应用程序」→ 启动。
-
-也可双击 `install-from-local.command`（需先把 `.command` 和 DMG 放在同一目录）。
-
-**或手动 3 条命令**（不用脚本）：
-
-```bash
-xattr -cr ~/Downloads/warp-ade_0.1.0_aarch64.dmg
-open ~/Downloads/warp-ade_0.1.0_aarch64.dmg
-# 拖入「应用程序」后：
-xattr -cr /Applications/warp-ade.app && open /Applications/warp-ade.app
-```
-
-**不用终端**：对 `warp-ade.app` 使用 **Control + 点击 → 打开 → 仍要打开**（DMG 拖入「应用程序」后操作一次）。
+> 旧版 DMG 没有内置安装程序，请重新下载最新 Release。
 
 首次使用请先在 **模型服务** 中配置 Provider 与 API Key。
 
 > 最新版本与更新说明见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
 
-### 其他情况
-
-#### 在线一键安装（能 curl 且能下载外网时）
+<details>
+<summary>其他安装方式（终端 / 内网）</summary>
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-macos.sh | bash
+# 已有 DMG，终端一键安装
+bash ~/Downloads/install-from-local.sh
 ```
 
-#### 公司内网完全上不了 GitHub（port 443 连不上）
+```bash
+# 手动
+xattr -cr ~/Downloads/warp-ade_0.1.0_aarch64.dmg
+open ~/Downloads/warp-ade_0.1.0_aarch64.dmg
+xattr -cr /Applications/warp-ade.app && open /Applications/warp-ade.app
+```
 
-由管理员打包 `warp-ade_*.dmg` + `install-from-local.sh` 通过 U 盘/内网发给同事，执行 `bash install-from-local.sh`（无需网络）。
-
-#### 分发注意
-
-| 做法 | 结果 |
-|------|------|
-| 同事自己从 GitHub Releases 下载 + 安装脚本 | ✅ 推荐 |
-| 只双击 DMG / 只拖入应用程序后双击 | ❌ 几乎必报「已损坏」 |
-| 钉钉 / 微信转发 `.dmg` | ❌ 隔离标记更重 |
-| Apple 签名 + 公证（$99/年） | ✅ 可像普通软件直接双击 |
+</details>
 
 ## 界面预览
 

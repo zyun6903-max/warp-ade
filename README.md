@@ -5,6 +5,44 @@
 
 Mac-first · Tauri 2 + Rust + React
 
+## 下载（macOS）
+
+| 平台 | 要求 | 下载 |
+|------|------|------|
+| Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
+
+1. 打开 DMG，将 **warp-ade** 拖入「应用程序」文件夹  
+2. 首次启动若被 Gatekeeper 拦截：系统设置 → 隐私与安全性 → 仍要打开  
+3. 首次使用请先在 **模型服务** 中配置 Provider 与 API Key
+
+> 最新版本与更新说明见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
+
+## 界面预览
+
+### 对话 · 项目 Agent
+
+在项目工作区中运行 Agent：读/写文件、grep、Shell、工具循环。
+
+![对话界面](docs/screenshots/chat.png)
+
+### 模型服务
+
+配置 Provider、Base URL、模型列表、优先级与 Failover；支持逐模型测试与用量统计。
+
+![模型服务](docs/screenshots/providers.png)
+
+### 扩展 · Skills 与 MCP
+
+管理 Skills 启用状态，配置 MCP Server，扩展 Agent 工具能力。
+
+![扩展设置](docs/screenshots/extensions.png)
+
+### 导入历史
+
+从 Cursor / Claude Code / Codex 批量导入会话，继续对话。
+
+![导入记录](docs/screenshots/import.png)
+
 ## 四核能力
 
 | 核 | 来自 | 做什么 |
@@ -17,8 +55,8 @@ Mac-first · Tauri 2 + Rust + React
 ## 已有能力（保留）
 
 - 三源历史导入（Cursor / Claude Code / Codex）· 继续对话 · 批量导入进度
-- 语义代码搜索 · Web 搜索 · 附件粘贴 · Git 环境面板
-- 工具/Shell 审计 · Rolling Summary · 会话导出 · MCP 管理
+- 语义代码搜索 · Web 搜索 · 附件粘贴 · Git 环境面板（分支 / 提交 / 推送）
+- 工具/Shell 审计 · Rolling Summary · 会话导出 · MCP 管理 · 原生 Skills 按需加载
 
 > 范围与迭代原则：[`docs/plans/2026-06-11-replacement-parity.md`](docs/plans/2026-06-11-replacement-parity.md)
 
@@ -33,4 +71,22 @@ pnpm tauri dev
 
 ```bash
 pnpm tauri build
+```
+
+产物位于 `src-tauri/target/release/bundle/`（`.app` 与 `.dmg`）。
+
+### 发布新版本
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+推送 tag 后 GitHub Actions 会自动构建 macOS 安装包并上传到 Release。
+
+### 更新 README 截图
+
+```bash
+pnpm preview --port 4173 &
+pnpm screenshots
 ```

@@ -11,9 +11,13 @@ Mac-first · Tauri 2 + Rust + React
 |------|------|------|
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
 
-1. 双击打开 DMG，将 **warp-ade** 拖入 **Applications（应用程序）**
-2. 从启动台打开；若提示无法打开：**Control + 点击** → **打开** → **仍要打开**
-3. 首次使用请先在 **模型服务** 中配置 Provider 与 API Key
+1. 双击打开 DMG
+2. **双击「安装.command」**（不要拖 warp-ade 到 Applications，未签名会报「已损坏」）
+3. 若被拦截：**Control + 点击「安装.command」→ 打开 → 仍要打开**
+
+> 像 [CC Switch](https://github.com/farion1231/cc-switch) 那样拖入 Applications 直接能用，需要 Apple 开发者签名（$99/年）。当前版本未签名，必须用安装.command。
+
+首次使用请先在 **模型服务** 中配置 Provider 与 API Key。
 
 > 最新版本见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
 

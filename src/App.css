@@ -1872,6 +1872,120 @@ button {
   margin-bottom: 12px;
 }
 
+.extensions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.extensions-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.extensions-section-head h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.extensions-message {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.extensions-skill-list,
+.settings-mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.extensions-skill-item,
+.settings-mcp-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+
+.extensions-skill-main,
+.settings-mcp-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.extensions-skill-name,
+.settings-mcp-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.extensions-skill-source {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-secondary);
+}
+
+.extensions-skill-disabled {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.extensions-skill-desc {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.extensions-skill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.extensions-danger {
+  color: var(--danger);
+}
+
+.settings-mcp-cmd {
+  font-size: 11px;
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+.settings-mcp-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.settings-mcp-form h4 {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.extensions-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .settings-mcp-header h3 {
   margin: 0 0 4px;
   font-size: 14px;

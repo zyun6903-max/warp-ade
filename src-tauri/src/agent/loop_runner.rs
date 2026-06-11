@@ -200,6 +200,11 @@ async fn run_agent_loop(
         None
     };
 
+    let skill_catalog: Vec<crate::agent::project_context::SkillEntry> = project_ctx
+        .as_ref()
+        .map(|c| c.skills.clone())
+        .unwrap_or_default();
+
     let mut loop_turns = input.loop_turns;
     let user_text = input.user_text;
     let auto_failover = input.auto_failover;
@@ -411,6 +416,7 @@ async fn run_agent_loop(
                 semantic_search: settings.semantic_search_config(),
                 workspace_policy: settings.workspace_path_policy(),
                 bypass_outside_approval: false,
+                skill_catalog: &skill_catalog,
             };
 
             let mut batch_calls: Vec<AgentToolCall> = Vec::new();

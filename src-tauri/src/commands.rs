@@ -624,6 +624,11 @@ pub async fn execute_agent_shell(
         .db
         .resolve_session_workspace(&session_id)?
         .map(std::path::PathBuf::from);
+    let skill_catalog: Vec<crate::agent::project_context::SkillEntry> = workspace
+        .as_ref()
+        .and_then(|ws| crate::agent::project_context::load_project_context(ws).ok())
+        .map(|c| c.skills)
+        .unwrap_or_default();
     let web_search_api_key =
         crate::secrets::get_api_key(crate::search::WEB_SEARCH_KEY_ACCOUNT).ok();
 
@@ -644,6 +649,7 @@ pub async fn execute_agent_shell(
                     semantic_search: settings.semantic_search_config(),
                     workspace_policy: settings.workspace_path_policy(),
                     bypass_outside_approval: true,
+                    skill_catalog: &skill_catalog,
                 };
                 match execute_paused_tool_call(&pending.paused_tool_call, &tool_ctx) {
                     ToolResult::Ok(out) => out,
@@ -786,6 +792,36 @@ pub struct SaveMcpServerInput {
     pub args: Vec<String>,
     pub env: std::collections::HashMap<String, String>,
     pub enabled: bool,
+}
+
+#[tauri::command]
+pub fn list_all_skills(workspace_path: Option<String>) -> AppResult<Vec<crate::agent::skills_registry::SkillListItem>> {
+    let workspace = workspace_path
+        .filter(|p| !p.trim().is_empty())
+        .map(std::path::PathBuf::from);
+    crate::agent::skills_registry::list_skill_items(workspace.as_deref())
+}
+
+#[tauri::command]
+pub fn set_skill_enabled(skill_path: String, enabled: bool) -> AppResult<()> {
+    crate::agent::skills_registry::set_skill_enabled(&skill_path, enabled)
+}
+
+#[tauri::command]
+pub fn delete_user_skill(skill_path: String) -> AppResult<()> {
+    crate::agent::skills_registry::delete_user_skill_dir(&skill_path)
+}
+
+#[tauri::command]
+pub fn reveal_skill_path(skill_path: String) -> AppResult<()> {
+    crate::agent::skills_registry::reveal_in_file_manager(&skill_path)
+}
+
+#[tauri::command]
+pub fn get_user_skills_dir() -> AppResult<String> {
+    Ok(crate::agent::skills_registry::user_skills_root()?
+        .to_string_lossy()
+        .to_string())
 }
 
 #[tauri::command]

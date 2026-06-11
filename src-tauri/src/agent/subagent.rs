@@ -96,11 +96,17 @@ pub async fn run_subagent(
     let web_search_api_key = secrets::get_api_key(crate::search::WEB_SEARCH_KEY_ACCOUNT).ok();
     let max_iterations = settings.agent_subagent_max_iterations.max(1).min(30);
     let base_system = subagent_system_prompt(&input.subagent_type, input.readonly);
-    let system = workspace
+    let project_bundle = workspace
         .as_ref()
-        .and_then(|ws| load_project_context(ws).ok())
-        .map(|bundle| build_agent_system_prompt(&base_system, None, Some(&bundle)))
+        .and_then(|ws| load_project_context(ws).ok());
+    let system = project_bundle
+        .as_ref()
+        .map(|bundle| build_agent_system_prompt(&base_system, None, Some(bundle)))
         .unwrap_or(base_system);
+    let skill_catalog: Vec<crate::agent::project_context::SkillEntry> = project_bundle
+        .as_ref()
+        .map(|b| b.skills.clone())
+        .unwrap_or_default();
 
     let mcp_servers: Vec<_> = db
         .list_mcp_servers()
@@ -181,6 +187,7 @@ pub async fn run_subagent(
             semantic_search: settings.semantic_search_config(),
             workspace_policy: settings.workspace_path_policy(),
             bypass_outside_approval: false,
+            skill_catalog: &skill_catalog,
         };
 
         let mut batch_calls: Vec<AgentToolCall> = Vec::new();

@@ -271,6 +271,15 @@ export type BatchImportResult = {
   skipped: number;
 };
 
+export type SkillListItem = {
+  name: string;
+  description: string;
+  path: string;
+  source: string;
+  chars: number;
+  enabled: boolean;
+};
+
 export type ProjectRuleEntry = {
   label: string;
   path: string;

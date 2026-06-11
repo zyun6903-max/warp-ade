@@ -19,6 +19,7 @@
 | search_history | 搜索本地导入对话（独有） |
 | run_command | Shell（分级确认） |
 | spawn_task | 启动子 Agent（explore / general） |
+| use_skill | 按需加载 SKILL.md 完整说明 |
 | mcp_* | MCP 扩展工具 |
 
 ## 对比矩阵
@@ -41,7 +42,7 @@
 | Linter/Diagnostics | ✅ | ❌ | ❌ 可接 MCP |
 | Notebook 编辑 | ✅ | ✅ | ❌ 低优先级 |
 | 图片/多模态读 | ✅ | ✅ | ⚠️ 路径 + read_file base64 |
-| Skills / Hooks | ✅ | ✅ | ❌ 产品层 |
+| Skills / Hooks | ✅ / ❌ | ⚠️ Skills：目录注入 + use_skill + 设置页管理；Hooks 仍 ❌ |
 
 ## 本次迭代（P2 续）
 

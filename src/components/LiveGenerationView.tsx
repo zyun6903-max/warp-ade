@@ -143,7 +143,9 @@ function ToolStepCard({
         aria-expanded={expanded}
       >
         <span className={`live-tool-status live-tool-status-${step.status}`} />
-        <span className="live-tool-name">{step.toolName}</span>
+        <span className="live-tool-name">
+          {step.toolName === "use_skill" ? "use_skill · 技能" : step.toolName}
+        </span>
         {!expanded && summary ? <span className="live-tool-summary muted">{summary}</span> : null}
         {patchParsed && (patchParsed.addedLines > 0 || patchParsed.removedLines > 0) ? (
           <span className="live-patch-stats live-patch-stats-inline">

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { zh } from "../i18n/zh";
+import { ExtensionsPanel } from "../components/settings/ExtensionsPanel";
 import { DismissibleNotice } from "../components/DismissibleNotice";
 import type { AppContextSettings, AppInfo } from "../types";
 
-type SettingsTab = "general" | "context" | "agent" | "shell" | "workspace";
+type SettingsTab = "general" | "context" | "agent" | "shell" | "workspace" | "extensions";
 
 const SETTINGS_TABS: SettingsTab[] = [
   "general",
@@ -12,6 +13,7 @@ const SETTINGS_TABS: SettingsTab[] = [
   "agent",
   "shell",
   "workspace",
+  "extensions",
 ];
 
 export function SettingsPage() {
@@ -270,6 +272,13 @@ export function SettingsPage() {
             </div>
             {renderEditableFooter()}
           </>
+        );
+
+      case "extensions":
+        return (
+          <div className="settings-panel-body">
+            <ExtensionsPanel />
+          </div>
         );
 
       default:

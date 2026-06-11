@@ -116,6 +116,16 @@ export function summarizeToolPreview(toolName: string, preview: string, max = 72
 
   const trimmed = preview.trim().replace(/\s+/g, " ");
   if (!trimmed) return toolName;
+  if (toolName === "use_skill") {
+    try {
+      const args = JSON.parse(preview) as { name?: string };
+      if (args.name) return args.name;
+    } catch {
+      /* ignore */
+    }
+    const m = preview.match(/"name"\s*:\s*"([^"]+)"/);
+    if (m?.[1]) return m[1];
+  }
   if (toolName === "read_file" || toolName === "grep_project" || toolName === "glob_files") {
     const pathMatch = trimmed.match(/["']?([^\s"']+)["']?/);
     const hint = pathMatch?.[1] ?? trimmed;

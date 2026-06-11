@@ -69,7 +69,7 @@ pub fn agent_system_prompt() -> &'static str {
 ## 其他
 - 同轮可连续调用多个工具；每次等待结果后再继续
 - 用户附件已保存为本地路径，可用 read_file 读取
-- 工作区会自动注入 CLAUDE.md / AGENTS.md / .cursorrules 及 Skills"#
+- 工作区会自动注入 CLAUDE.md / AGENTS.md / .cursorrules；Skills 以目录形式列出，匹配时用 **use_skill** 加载完整说明"#
 }
 
 pub fn plan_system_prompt() -> &'static str {

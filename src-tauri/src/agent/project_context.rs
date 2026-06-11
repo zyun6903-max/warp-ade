@@ -4,6 +4,8 @@ use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
 
+use super::skills_registry;
+
 pub(crate) const MAX_RULES_CHARS: usize = 32_000;
 pub(crate) const MAX_SKILLS_CHARS: usize = 24_000;
 pub(crate) const MAX_SINGLE_FILE: usize = 16_000;
@@ -47,6 +49,7 @@ pub fn load_project_context(workspace: &Path) -> AppResult<ProjectContextBundle>
     let rules = collect_rule_files(&workspace)?;
     let mut skills = collect_skills(&workspace)?;
     skills.extend(collect_user_skills()?);
+    skills = skills_registry::apply_enabled_filter(skills)?;
 
     Ok(ProjectContextBundle {
         workspace_path: workspace.to_string_lossy().to_string(),
@@ -132,41 +135,35 @@ fn format_skills_block(ctx: &ProjectContextBundle) -> Option<String> {
     if ctx.skills.is_empty() {
         return None;
     }
-    let mut block = String::from("## 可用 Skills（自动加载）\n\n");
+    let mut block = String::from("## 可用 Skills（目录）\n\n");
     block.push_str(
-        "当任务匹配某 Skill 的描述时，按该 Skill 的说明执行；可结合 read_file 读取 Skill 路径下的其他文件。\n\n",
+        "当任务匹配某 Skill 的「何时使用」描述时，**必须先调用 use_skill 工具**加载完整说明，再严格按说明执行；不要用 read_file 代替 use_skill 加载主 SKILL.md。\n\n",
     );
-    let mut used = 0usize;
     for skill in &ctx.skills {
-        if used >= MAX_SKILLS_CHARS {
-            block.push_str("\n（其余 Skills 因长度限制未注入）\n");
-            break;
-        }
-        let body = match std::fs::read_to_string(&skill.path) {
-            Ok(s) => {
-                let body = strip_frontmatter(&s);
-                truncate_chars(&body, MAX_SINGLE_FILE.min(MAX_SKILLS_CHARS - used))
-            }
-            Err(_) => continue,
-        };
-        if body.trim().is_empty() && skill.description.trim().is_empty() {
-            continue;
-        }
         block.push_str(&format!(
-            "### Skill: {}（{}）\n",
-            skill.name, skill.source
+            "- **{}** · `{}` · {}\n",
+            skill.name,
+            skill.source,
+            if skill.description.trim().is_empty() {
+                "（无描述）"
+            } else {
+                skill.description.trim()
+            }
         ));
-        if !skill.description.trim().is_empty() {
-            block.push_str(&format!("**何时使用：** {}\n\n", skill.description.trim()));
-        }
-        block.push_str(&format!("**路径：** `{}`\n\n", skill.path));
-        if !body.trim().is_empty() {
-            block.push_str(&body);
-            block.push_str("\n\n");
-            used += body.chars().count();
-        }
+        block.push_str(&format!("  路径: `{}`\n", skill.path));
     }
     Some(block.trim_end().to_string())
+}
+
+pub fn load_skill_body(path: &str) -> AppResult<String> {
+    let raw = std::fs::read_to_string(path)?;
+    Ok(strip_frontmatter(&raw))
+}
+
+pub fn find_skill_by_name<'a>(skills: &'a [SkillEntry], name: &str) -> Option<&'a SkillEntry> {
+    skills
+        .iter()
+        .find(|s| s.name.eq_ignore_ascii_case(name))
 }
 
 fn collect_rule_files(workspace: &Path) -> AppResult<Vec<ProjectRuleEntry>> {
@@ -269,11 +266,11 @@ fn collect_skills_from_dir(base: &Path, source: &str) -> AppResult<Vec<SkillEntr
     Ok(skills)
 }
 
-fn collect_skills(workspace: &Path) -> AppResult<Vec<SkillEntry>> {
+pub(crate) fn collect_skills(workspace: &Path) -> AppResult<Vec<SkillEntry>> {
     collect_skills_from_dir(&workspace.join(".claude").join("skills"), "project")
 }
 
-fn collect_user_skills() -> AppResult<Vec<SkillEntry>> {
+pub(crate) fn collect_user_skills() -> AppResult<Vec<SkillEntry>> {
     let home = dirs::home_dir().ok_or_else(|| AppError::from("无法定位用户主目录"))?;
     collect_skills_from_dir(&home.join(".claude").join("skills"), "user")
 }
@@ -398,7 +395,9 @@ description: 查询 Zipkin 链路
         let prompt = build_agent_system_prompt("base", None, Some(&bundle));
         assert!(prompt.contains("项目上下文"));
         assert!(prompt.contains("可用 Skills"));
-        assert!(prompt.contains("Do demo things"));
+        assert!(prompt.contains("use_skill"));
+        assert!(prompt.contains("demo"));
+        assert!(!prompt.contains("Do demo things"));
 
         let _ = fs::remove_dir_all(&tmp);
     }

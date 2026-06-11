@@ -1,6 +1,7 @@
 pub mod events;
 pub mod plan_mode;
 pub mod project_context;
+pub mod skills_registry;
 pub mod workspace_policy;
 pub mod audit;
 pub mod subagent;

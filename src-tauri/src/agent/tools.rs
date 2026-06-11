@@ -11,8 +11,10 @@ use crate::error::{AppError, AppResult};
 use crate::mcp::McpManager;
 use crate::search::WebSearchConfig;
 use crate::search::SemanticSearchConfig;
+use crate::agent::project_context::SkillEntry;
 use crate::storage::db::Database;
 
+use super::project_context::{find_skill_by_name, load_skill_body, truncate_chars, MAX_SINGLE_FILE};
 use super::parser::ParsedToolCall;
 use super::shell_policy::{shell_requires_approval, ShellPolicyConfig};
 use super::workspace_policy::{
@@ -71,6 +73,7 @@ pub struct ToolContext<'a> {
     pub semantic_search: SemanticSearchConfig,
     pub workspace_policy: WorkspacePathPolicy,
     pub bypass_outside_approval: bool,
+    pub skill_catalog: &'a [SkillEntry],
 }
 
 fn plan_mode_blocked_tool(name: &str) -> bool {
@@ -267,6 +270,39 @@ pub fn execute_tool(call: &ParsedToolCall, ctx: &ToolContext<'_>) -> ToolResult 
                         .collect::<Vec<_>>()
                         .join("\n");
                     ToolResult::Ok(lines)
+                }
+                Err(e) => ToolResult::Err(e.to_string()),
+            }
+        }
+        "use_skill" => {
+            let name = match arg_str(&call.arguments, "name") {
+                Some(n) => n,
+                None => return ToolResult::Err("use_skill 需要 name 参数".into()),
+            };
+            let Some(skill) = find_skill_by_name(ctx.skill_catalog, &name) else {
+                let names: Vec<_> = ctx
+                    .skill_catalog
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect();
+                return ToolResult::Err(if names.is_empty() {
+                    format!("未找到 Skill「{name}」，当前无可用 Skills")
+                } else {
+                    format!(
+                        "未找到 Skill「{name}」，可用: {}",
+                        names.join(", ")
+                    )
+                });
+            };
+            match load_skill_body(&skill.path) {
+                Ok(body) => {
+                    let trimmed = truncate_chars(&body, MAX_SINGLE_FILE);
+                    ToolResult::Ok(format!(
+                        "# Skill: {}\n\n{}\n\n---\n路径: `{}`",
+                        skill.name,
+                        trimmed.trim(),
+                        skill.path
+                    ))
                 }
                 Err(e) => ToolResult::Err(e.to_string()),
             }

@@ -155,6 +155,17 @@ pub fn tool_definitions_openai() -> Vec<Value> {
             }),
         ),
         openai_tool(
+            "use_skill",
+            "加载 Skill 完整说明（SKILL.md）。任务匹配某 Skill 描述时必须先调用此工具，再按说明执行",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Skill 名称，与目录中一致" }
+                },
+                "required": ["name"]
+            }),
+        ),
+        openai_tool(
             "run_command",
             "执行 shell 命令；只读命令可自动执行，安装/写入/网络命令需用户确认",
             json!({

@@ -20,22 +20,37 @@ Mac-first · Tauri 2 + Rust + React
 
 当前版本**未做 Apple 开发者签名与公证**，macOS 会误报为「已损坏」。**所有从网络下载的未签名应用都会这样**，不是安装包坏了。
 
-#### 方式 A：一键安装脚本（推荐给同事）
+#### 方式 A：离线安装（公司内网 / 443 连不上 GitHub 时首选）
 
-**国内网络请用 jsDelivr 镜像**（避免 `raw.githubusercontent.com` 403）：
+**443 不是 HTTP 错误码**，而是 HTTPS 端口；报错里出现 `port 443` / `Failed to connect` 表示**根本连不上外网**（公司防火墙常见），在线脚本无法使用。
+
+由你在能上网的 Mac 下载好两个文件，打包发给同事（U 盘、内网 NAS、邮件附件均可）：
+
+| 文件 | 说明 |
+|------|------|
+| `warp-ade_0.1.0_aarch64.dmg` | [Releases 下载](https://github.com/zyun6903-max/warp-ade/releases/latest) |
+| `scripts/install-from-local.sh` | 仓库内离线安装脚本 |
+
+同事解压后，在终端执行（**不需要网络**）：
+
+```bash
+cd ~/Downloads/warp-ade-install   # 两个文件所在目录
+bash install-from-local.sh
+```
+
+#### 方式 B：在线一键安装（需能访问外网）
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-macos.sh | bash
 ```
 
-脚本会自动尝试 GitHub 与 ghfast 镜像下载 DMG。若仍失败，先浏览器下载 DMG，再：
+若公司需走代理：`export HTTPS_PROXY=http://代理地址:端口` 后再执行。
+
+在线失败、但已有 DMG 时：
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-macos.sh -o install-macos.sh
-WARP_ADE_DMG=~/Downloads/warp-ade_0.1.0_aarch64.dmg bash install-macos.sh
+WARP_ADE_DMG=~/Downloads/warp-ade_0.1.0_aarch64.dmg bash install-from-local.sh
 ```
-
-或克隆仓库后双击 `scripts/install-macos.command`。
 
 #### 方式 B：手动安装
 

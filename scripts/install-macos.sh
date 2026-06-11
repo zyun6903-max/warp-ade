@@ -29,19 +29,30 @@ cleanup() {
 trap cleanup EXIT
 
 download_dmg() {
-  local url tmp
+  local url err
   for url in "${DOWNLOAD_URLS[@]}"; do
     [[ -z "${url}" ]] && continue
     echo "→ 尝试下载 ${url}"
+    err="$(mktemp)"
     if curl -fL --retry 2 --connect-timeout 15 --max-time 600 \
-      -A "warp-ade-installer/1.0" -o "${DMG_PATH}" "${url}"; then
+      -A "warp-ade-installer/1.0" -o "${DMG_PATH}" "${url}" 2>"${err}"; then
+      rm -f "${err}"
       return 0
     fi
-    echo "  下载失败，尝试下一个镜像…"
-    rm -f "${DMG_PATH}"
+    echo "  失败：$(tail -1 "${err}")"
+    rm -f "${err}" "${DMG_PATH}"
   done
   return 1
 }
+
+# 脚本与 DMG 同目录时（非 curl 管道），优先离线安装
+SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+if [[ -z "${WARP_ADE_DMG:-}" && -n "${SCRIPT_PATH}" && "${SCRIPT_PATH}" != "bash" && -f "${SCRIPT_PATH}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_PATH}")" && pwd)"
+  if compgen -G "${SCRIPT_DIR}"/warp-ade_*.dmg > /dev/null; then
+    WARP_ADE_DMG="$(ls "${SCRIPT_DIR}"/warp-ade_*.dmg | head -1)"
+  fi
+fi
 
 if [[ -n "${WARP_ADE_DMG:-}" ]]; then
   if [[ ! -f "${WARP_ADE_DMG}" ]]; then
@@ -52,14 +63,19 @@ if [[ -n "${WARP_ADE_DMG:-}" ]]; then
   cp "${WARP_ADE_DMG}" "${DMG_PATH}"
 elif ! download_dmg; then
   cat >&2 <<EOF
-错误：所有下载源均失败（常见为 403 / 网络无法访问 GitHub）。
+错误：无法从网络下载 DMG。
 
-请任选一种方式：
-  1. 浏览器打开 Releases 手动下载 DMG，然后执行：
-     WARP_ADE_DMG=~/Downloads/${DMG_NAME} bash install-macos.sh
-  2. 使用国内镜像拉取脚本后再装本地包：
-     curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-macos.sh -o install-macos.sh
-     WARP_ADE_DMG=~/Downloads/${DMG_NAME} bash install-macos.sh
+常见原因：
+  · curl: (7) Failed to connect ... port 443  → 公司防火墙/内网拦截 HTTPS，无法访问 GitHub
+  · curl: (35) SSL connect error              → 需配置公司代理：export HTTPS_PROXY=http://代理:端口
+  · HTTP 403                                  → 部分 CDN 被墙
+
+【推荐】离线安装（无需任何网络）：
+  1. 你下载好 DMG，与 install-from-local.sh 一起打包发给同事（U 盘/内网共享）
+  2. 同事执行：bash install-from-local.sh
+
+或已有 DMG 时：
+  WARP_ADE_DMG=~/Downloads/${DMG_NAME} bash install-from-local.sh
 EOF
   exit 1
 fi

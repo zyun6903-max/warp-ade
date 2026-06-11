@@ -11,37 +11,11 @@ Mac-first · Tauri 2 + Rust + React
 |------|------|------|
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
 
-### 安装（2 步）
+1. 双击打开 DMG，将 **warp-ade** 拖入 **Applications（应用程序）**
+2. 从启动台打开；若提示无法打开：**Control + 点击** → **打开** → **仍要打开**
+3. 首次使用请先在 **模型服务** 中配置 Provider 与 API Key
 
-1. **双击打开** DMG  
-2. **双击**「**安装 warp-ade.command**」
-
-若提示无法打开：**Control + 点击**「安装 warp-ade.command」→ **打开** → **仍要打开**（只需首次一次）。
-
-安装程序会自动清除隔离标记、复制到「应用程序」并启动。**无需终端、无需额外脚本。**
-
-> 旧版 DMG 没有内置安装程序，请重新下载最新 Release。
-
-首次使用请先在 **模型服务** 中配置 Provider 与 API Key。
-
-> 最新版本与更新说明见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
-
-<details>
-<summary>其他安装方式（终端 / 内网）</summary>
-
-```bash
-# 已有 DMG，终端一键安装
-bash ~/Downloads/install-from-local.sh
-```
-
-```bash
-# 手动
-xattr -cr ~/Downloads/warp-ade_0.1.0_aarch64.dmg
-open ~/Downloads/warp-ade_0.1.0_aarch64.dmg
-xattr -cr /Applications/warp-ade.app && open /Applications/warp-ade.app
-```
-
-</details>
+> 最新版本见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
 
 ## 界面预览
 

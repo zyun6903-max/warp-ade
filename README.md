@@ -22,13 +22,20 @@ Mac-first · Tauri 2 + Rust + React
 
 #### 方式 A：一键安装脚本（推荐给同事）
 
-在终端粘贴运行（需联网，自动下载 + 安装 + 去隔离）：
+**国内网络请用 jsDelivr 镜像**（避免 `raw.githubusercontent.com` 403）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zyun6903-max/warp-ade/main/scripts/install-macos.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-macos.sh | bash
 ```
 
-或克隆仓库后双击 `scripts/install-macos.command`（会打开终端执行同样流程）。
+脚本会自动尝试 GitHub 与 ghfast 镜像下载 DMG。若仍失败，先浏览器下载 DMG，再：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-macos.sh -o install-macos.sh
+WARP_ADE_DMG=~/Downloads/warp-ade_0.1.0_aarch64.dmg bash install-macos.sh
+```
+
+或克隆仓库后双击 `scripts/install-macos.command`。
 
 #### 方式 B：手动安装
 

@@ -11,12 +11,15 @@ if [[ -n "${WARP_ADE_DMG:-}" ]]; then
   DMG_PATH="${WARP_ADE_DMG}"
 elif compgen -G "${SCRIPT_DIR}"/warp-ade_*.dmg > /dev/null; then
   DMG_PATH="$(ls "${SCRIPT_DIR}"/warp-ade_*.dmg | head -1)"
+elif compgen -G "${HOME}/Downloads"/warp-ade_*.dmg > /dev/null; then
+  DMG_PATH="$(ls "${HOME}/Downloads"/warp-ade_*.dmg | head -1)"
 else
   cat >&2 <<EOF
 错误：未找到 DMG 文件。
 
-请把 ${DMG_NAME:-warp-ade_*.dmg} 与本脚本放在同一文件夹，或执行：
-  WARP_ADE_DMG=/path/to/warp-ade_0.1.0_aarch64.dmg bash install-from-local.sh
+请从 GitHub Releases 下载 warp-ade_*.dmg，与本脚本放在同一目录（或「下载」文件夹），然后重试。
+也可指定路径：
+  WARP_ADE_DMG=~/Downloads/warp-ade_0.1.0_aarch64.dmg bash install-from-local.sh
 EOF
   exit 1
 fi

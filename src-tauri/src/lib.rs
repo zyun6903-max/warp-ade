@@ -1,4 +1,5 @@
 mod attachments;
+mod platform;
 mod search;
 mod agent;
 mod commands;

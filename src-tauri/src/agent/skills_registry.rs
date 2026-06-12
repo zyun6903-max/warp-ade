@@ -137,20 +137,5 @@ pub fn reveal_in_file_manager(path: &str) -> AppResult<()> {
     } else {
         p.to_path_buf()
     };
-    if !target.exists() {
-        return Err(AppError::from("路径不存在"));
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(&target)
-            .status()
-            .map_err(|e| AppError::from(format!("无法打开目录: {e}")))?;
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = target;
-        return Err(AppError::from("当前平台暂不支持在文件管理器中打开"));
-    }
-    Ok(())
+    crate::platform::reveal_in_file_manager(&target)
 }

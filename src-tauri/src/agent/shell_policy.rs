@@ -48,6 +48,18 @@ const READONLY_PREFIXES: &[&str] = &[
     "cmake --version",
 ];
 
+#[cfg(windows)]
+const READONLY_PREFIXES_EXTRA: &[&str] = &[
+    "dir",
+    "dir ",
+    "get-childitem",
+    "get-content",
+    "select-string",
+    "where.exe",
+    "where ",
+    "test-path",
+];
+
 /// 内置开发验证命令（对齐 Cursor / Claude Code 常见自动执行项）
 const DEV_VERIFY_PREFIXES: &[&str] = &[
     // Rust
@@ -259,6 +271,13 @@ fn is_auto_allowed_segment(segment: &str, config: &ShellPolicyConfig) -> bool {
     }
 
     for prefix in READONLY_PREFIXES {
+        if segment_matches_prefix(&lower, prefix) {
+            return true;
+        }
+    }
+
+    #[cfg(windows)]
+    for prefix in READONLY_PREFIXES_EXTRA {
         if segment_matches_prefix(&lower, prefix) {
             return true;
         }

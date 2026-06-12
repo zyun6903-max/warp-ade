@@ -465,11 +465,7 @@ pub fn execute_tool(call: &ParsedToolCall, ctx: &ToolContext<'_>) -> ToolResult 
 }
 
 pub fn run_shell_command(command: &str, workspace: Option<&Path>) -> Result<ShellRunResult, String> {
-    let output = if let Some(ws) = workspace {
-        Command::new("sh").arg("-lc").arg(command).current_dir(ws).output()
-    } else {
-        Command::new("sh").arg("-lc").arg(command).output()
-    };
+    let output = crate::platform::run_shell(command, workspace);
 
     match output {
         Ok(out) => {

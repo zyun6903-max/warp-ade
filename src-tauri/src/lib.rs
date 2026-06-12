@@ -77,6 +77,7 @@ pub fn run() {
             commands::import_claude_session,
             commands::batch_import_sessions,
             commands::save_chat_attachment,
+            commands::get_attachment_data_url,
             commands::scan_codex_imports,
             commands::import_codex_session,
             commands::get_session_by_source,

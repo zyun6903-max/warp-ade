@@ -11,27 +11,14 @@ Mac-first · Tauri 2 + Rust + React
 |------|------|------|
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
 
-当前版本**未 Apple 签名**，不能直接拖入 Applications。任选一种方式：
-
-### 方式 A：终端一条命令（最可靠，推荐）
-
-1. 下载 DMG 到「下载」文件夹  
-2. 打开 **终端.app**，粘贴回车：
+1. 双击打开 DMG，将 **warp-ade** 拖入 **Applications（应用程序）**
+2. 若提示无法打开 / 已损坏，在终端执行：
 
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-oneline.sh | bash
 ```
 
-### 方式 B：DMG 内安装程序
-
-1. 双击打开 DMG  
-2. **不要直接双击**「安装 warp-ade」  
-3. **Control + 点击**「安装 warp-ade」→ **打开** → **仍要打开**
-
-若弹窗只有「移到废纸篓」：先点「完成」关闭，再按上面 Control + 点击操作。  
-或在 **系统设置 → 隐私与安全性** 底部找到「仍要打开」。
-
-> [CC Switch](https://github.com/farion1231/cc-switch) 可拖安装，是因为做了 Apple 签名 + 公证（$99/年）。
+> 未 Apple 签名的应用拖入后可能报「已损坏」；上条命令会自动处理。像 [CC Switch](https://github.com/farion1231/cc-switch) 那样直接安装需开发者签名（$99/年）。
 
 首次使用请先在 **模型服务** 中配置 Provider 与 API Key。
 

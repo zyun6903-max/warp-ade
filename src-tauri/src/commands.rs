@@ -415,6 +415,11 @@ pub fn save_chat_attachment(input: SaveAttachmentInput) -> AppResult<crate::atta
 }
 
 #[tauri::command]
+pub fn get_attachment_data_url(path: String) -> AppResult<Option<String>> {
+    crate::attachments::attachment_data_url(&path)
+}
+
+#[tauri::command]
 pub fn get_session(state: State<'_, AppState>, session_id: String) -> AppResult<Option<Session>> {
     state.db.get_session(&session_id)
 }

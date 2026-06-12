@@ -13,10 +13,15 @@ import {
   sortProjectsForNav,
   splitProjects,
 } from "../utils/display";
+import { ComposerAttachments } from "../components/ComposerAttachments";
 import {
   attachmentLabel,
   fileToBase64,
   formatMessageWithAttachments,
+  isImageAttachment,
+  omitPreviewIds,
+  pickPreviews,
+  revokePreviewUrls,
 } from "../utils/attachments";
 import type {
   AgentToolEvent,
@@ -137,6 +142,7 @@ export function ChatPage({
     sessionId: string;
     rawContent: string;
     attachments: ChatAttachment[];
+    attachmentPreviews: Record<string, string>;
     optimisticId: string;
   } | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
@@ -153,6 +159,8 @@ export function ChatPage({
   const [chatMode, setChatMode] = useState<ChatMode>("agent");
   const [shellModal, setShellModal] = useState<{ action: string; payload: string } | null>(null);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string>>({});
+  const attachmentPreviewsRef = useRef<Record<string, string>>({});
   const [attachmentSaving, setAttachmentSaving] = useState(false);
   const [projectContext, setProjectContext] = useState<ProjectContextBundle | null>(null);
   const [changesRefresh, setChangesRefresh] = useState(0);
@@ -201,6 +209,22 @@ export function ChatPage({
     stickToBottomRef.current = isNearMessageBottom();
   }
 
+  function removeAttachment(id: string) {
+    setAttachmentPreviews((prev) => {
+      revokePreviewUrls(prev, [id]);
+      return omitPreviewIds(prev, [id]);
+    });
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }
+
+  useEffect(() => {
+    attachmentPreviewsRef.current = attachmentPreviews;
+  }, [attachmentPreviews]);
+
+  useEffect(() => {
+    return () => revokePreviewUrls(attachmentPreviewsRef.current);
+  }, []);
+
   function markStickToBottom() {
     stickToBottomRef.current = true;
   }
@@ -214,6 +238,7 @@ export function ChatPage({
     setMessages((prev) => prev.filter((message) => message.id !== rollback.optimisticId));
     setInput(rollback.rawContent);
     setAttachments(rollback.attachments);
+    setAttachmentPreviews((prev) => ({ ...prev, ...rollback.attachmentPreviews }));
     if (options && "error" in options) {
       setError(options.error ?? null);
     }
@@ -260,6 +285,14 @@ export function ChatPage({
 
   function removeQueuedMessage(sessionId: string, queueId: string) {
     const prev = sessionQueuesRef.current[sessionId] ?? [];
+    const removed = prev.find((item) => item.id === queueId);
+    if (removed) {
+      const ids = removed.attachments.map((a) => a.id);
+      setAttachmentPreviews((previews) => {
+        revokePreviewUrls(previews, ids);
+        return omitPreviewIds(previews, ids);
+      });
+    }
     syncSessionQueues({
       ...sessionQueuesRef.current,
       [sessionId]: prev.filter((item) => item.id !== queueId),
@@ -1009,6 +1042,7 @@ export function ChatPage({
     try {
       const sessionId = await ensureSession();
       const saved: ChatAttachment[] = [];
+      const newPreviews: Record<string, string> = {};
       for (const file of list) {
         const dataBase64 = await fileToBase64(file);
         const attachment = await invoke<ChatAttachment>("save_chat_attachment", {
@@ -1020,8 +1054,14 @@ export function ChatPage({
           },
         });
         saved.push(attachment);
+        if (isImageAttachment(attachment) || file.type.startsWith("image/")) {
+          newPreviews[attachment.id] = URL.createObjectURL(file);
+        }
       }
       setAttachments((prev) => [...prev, ...saved]);
+      if (Object.keys(newPreviews).length > 0) {
+        setAttachmentPreviews((prev) => ({ ...prev, ...newPreviews }));
+      }
     } catch (e) {
       setError(`${zh.chat.attachmentPasteFailed}: ${String(e)}`);
     } finally {
@@ -1091,16 +1131,23 @@ export function ChatPage({
         createdAt: Math.floor(Date.now() / 1000),
       };
       setMessages((prev) => [...prev, optimisticUser]);
+      const sentPreviewSnapshot = pickPreviews(
+        attachmentPreviewsRef.current,
+        pendingAttachments,
+      );
+      const sentAttachmentIds = pendingAttachments.map((a) => a.id);
       pendingSendRollbackRef.current = {
         sendSeq,
         sessionId,
         rawContent,
         attachments: pendingAttachments,
+        attachmentPreviews: sentPreviewSnapshot,
         optimisticId: optimisticUser.id,
       };
       markStickToBottom();
       setInput("");
       setAttachments([]);
+      setAttachmentPreviews((prev) => omitPreviewIds(prev, sentAttachmentIds));
 
       unlisten = await subscribeChatStream(sessionId, sendSeq, (providerName, attempts) => {
         setFailoverHint(zh.chat.failoveredHint(providerName, attempts));
@@ -1127,6 +1174,10 @@ export function ChatPage({
         });
       }
 
+      const sentRollback = pendingSendRollbackRef.current;
+      if (sentRollback?.attachmentPreviews) {
+        revokePreviewUrls(sentRollback.attachmentPreviews);
+      }
       pendingSendRollbackRef.current = null;
 
       const updatedProjects = await refreshProjects(workspaceProjectId ?? convId ?? undefined);
@@ -1686,24 +1737,11 @@ export function ChatPage({
               }
             }}
           >
-            {attachments.length > 0 && (
-              <ul className="composer-attachments">
-                {attachments.map((item) => (
-                  <li key={item.id} className="composer-attachment-chip">
-                    <span title={item.path}>{attachmentLabel(item)}</span>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm"
-                      onClick={() =>
-                        setAttachments((prev) => prev.filter((a) => a.id !== item.id))
-                      }
-                    >
-                      {zh.chat.attachmentRemove}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ComposerAttachments
+              attachments={attachments}
+              previews={attachmentPreviews}
+              onRemove={removeAttachment}
+            />
             {activeQueue.length > 0 && (
               <ul className="composer-queue" aria-label={zh.chat.queueTitle}>
                 {activeQueue.map((item, index) => (

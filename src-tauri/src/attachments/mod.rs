@@ -97,6 +97,25 @@ pub fn read_image_for_agent(path: &Path) -> AppResult<String> {
     Ok(out)
 }
 
+pub fn attachment_data_url(path: &str) -> AppResult<Option<String>> {
+    let path = PathBuf::from(path);
+    if !path.is_file() || !is_image_path(&path) {
+        return Ok(None);
+    }
+    let size = std::fs::metadata(&path)?.len() as usize;
+    if size > MAX_IMAGE_BASE64_BYTES {
+        return Ok(None);
+    }
+    let mime = guess_mime(
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("image.png"),
+    );
+    let bytes = std::fs::read(&path)?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(Some(format!("data:{mime};base64,{b64}")))
+}
+
 pub fn is_image_path(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())

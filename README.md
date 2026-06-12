@@ -11,19 +11,6 @@ Mac-first · Tauri 2 + Rust + React
 |------|------|------|
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
 
-1. 双击打开 DMG，将 **warp-ade** 拖入 **Applications（应用程序）**
-2. 若提示无法打开 / 已损坏，在终端执行：
-
-```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/install-oneline.sh | bash
-```
-
-> 未 Apple 签名的应用拖入后可能报「已损坏」；上条命令会自动处理。像 [CC Switch](https://github.com/farion1231/cc-switch) 那样直接安装需开发者签名（$99/年）。
-
-首次使用请先在 **模型服务** 中配置 Provider 与 API Key。
-
-> 最新版本见 [Releases](https://github.com/zyun6903-max/warp-ade/releases)
-
 ## 界面预览
 
 ### 对话 · 项目 Agent
@@ -112,8 +99,6 @@ pnpm tauri build
 
 本地刚编译的 `.app` 通常可直接双击运行；首次 Rust 编译约需 **5～15 分钟**。
 
-**不需要** Apple Developer 账号（本地 build 不要求签名）；**不需要** 预先配置 API Key（能编译、能打开应用）。
-
 ### 开发调试
 
 ```bash
@@ -131,21 +116,6 @@ Vite 开发服务器：`http://localhost:1420/`
 | Git | 环境面板的分支 / 提交 / 推送 |
 | Node.js / npx | 部分 MCP Server（stdio）可能依赖 |
 | 网络 | 调用 LLM API、Web 搜索等 |
-
-### 常见问题
-
-**自己 build 的应用也报「已损坏」？**  
-未签名应用可能被 Gatekeeper 拦截，执行：
-
-```bash
-xattr -cr /Applications/warp-ade.app
-```
-
-**`pnpm tauri build` 失败？**  
-常见原因：未装 Xcode Command Line Tools、Node 版本过低、Rust 未加入 PATH（重开终端或 `source ~/.cargo/env`）。
-
-**与 Release DMG 的区别？**  
-Release 同样是 `pnpm tauri build` 的默认产物，均未 Apple 签名；源码 build 与下载安装的体验一致。
 
 ### 发布新版本
 

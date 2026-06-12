@@ -4,7 +4,7 @@
 
 本地原生应用，支持 **macOS · Windows**。模型自己配、项目自己绑、Agent 直接在仓库里改代码——不用 IDE 臃肿，不用切四个工具。
 
-[下载 macOS 版 →](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) · [下载 Windows 版 →](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_x64-setup.exe)
+[下载 macOS 版 →](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) · [下载 Windows 版 →](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_x64.zip)
 
 ---
 
@@ -80,4 +80,4 @@ Cursor / Claude Code / Codex 会话一键迁入，导入后继续对话，换工
 | 平台 | 要求 | 下载 |
 |------|------|------|
 | Apple Silicon (M 系列) | macOS 13+ | [warp-ade_0.1.0_aarch64.dmg](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_aarch64.dmg) |
-| Windows | Windows 10/11 · x64 | [warp-ade_0.1.0_x64-setup.exe](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_x64-setup.exe) |
+| Windows | Windows 10/11 · x64 | [warp-ade_0.1.0_x64.zip](https://github.com/zyun6903-max/warp-ade/releases/latest/download/warp-ade_0.1.0_x64.zip) |

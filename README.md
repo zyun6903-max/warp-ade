@@ -67,20 +67,85 @@ curl -fsSL https://cdn.jsdelivr.net/gh/zyun6903-max/warp-ade@main/scripts/instal
 
 > 范围与迭代原则：[`docs/plans/2026-06-11-replacement-parity.md`](docs/plans/2026-06-11-replacement-parity.md)
 
-## 开发
+## 从源码构建
+
+### 环境要求
+
+| 项目 | 要求 |
+|------|------|
+| 操作系统 | **macOS 13+**（Ventura 及以上） |
+| 架构 | **Mac-first**；Apple Silicon 上构建最省事，Intel Mac 可本地编译 x64 包 |
+| 磁盘 | 建议预留 **5GB+**（Rust 依赖与编译缓存） |
+| 网络 | 首次构建需联网下载 npm / Rust crates |
+
+### 必装工具
+
+```bash
+# Xcode Command Line Tools（macOS 编译必备）
+xcode-select --install
+
+# Node.js 20.19+ 或 22.12+（Vite 7 要求；20.17 会报警告）
+node -v
+
+# pnpm
+npm install -g pnpm
+
+# Rust stable
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+另需 **Git**（克隆仓库；应用内 Git 面板也依赖系统 `git`）。
+
+### 克隆与构建
+
+```bash
+git clone https://github.com/zyun6903-max/warp-ade.git
+cd warp-ade
+pnpm install
+pnpm tauri build
+```
+
+| 产物 | 路径 |
+|------|------|
+| `.app` | `src-tauri/target/release/bundle/macos/warp-ade.app` |
+| `.dmg` | `src-tauri/target/release/bundle/dmg/warp-ade_0.1.0_aarch64.dmg` |
+
+本地刚编译的 `.app` 通常可直接双击运行；首次 Rust 编译约需 **5～15 分钟**。
+
+**不需要** Apple Developer 账号（本地 build 不要求签名）；**不需要** 预先配置 API Key（能编译、能打开应用）。
+
+### 开发调试
 
 ```bash
 pnpm install
 pnpm tauri dev
 ```
 
-## 构建
+Vite 开发服务器：`http://localhost:1420/`
+
+### 运行时依赖（非构建）
+
+| 用途 | 说明 |
+|------|------|
+| 模型 API Key | 在应用内「模型服务」配置 Provider |
+| Git | 环境面板的分支 / 提交 / 推送 |
+| Node.js / npx | 部分 MCP Server（stdio）可能依赖 |
+| 网络 | 调用 LLM API、Web 搜索等 |
+
+### 常见问题
+
+**自己 build 的应用也报「已损坏」？**  
+未签名应用可能被 Gatekeeper 拦截，执行：
 
 ```bash
-pnpm tauri build
+xattr -cr /Applications/warp-ade.app
 ```
 
-产物位于 `src-tauri/target/release/bundle/`（`.app` 与 `.dmg`）。
+**`pnpm tauri build` 失败？**  
+常见原因：未装 Xcode Command Line Tools、Node 版本过低、Rust 未加入 PATH（重开终端或 `source ~/.cargo/env`）。
+
+**与 Release DMG 的区别？**  
+Release 同样是 `pnpm tauri build` 的默认产物，均未 Apple 签名；源码 build 与下载安装的体验一致。
 
 ### 发布新版本
 
